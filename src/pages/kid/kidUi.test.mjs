@@ -263,4 +263,111 @@ assert.match(tuningCfg, /export function setDifficulty/);
 assert.match(tuningCfg, /export function setSceneDifficulty/);
 assert.match(tuningCfg, /\.tuning`, /, '覆盖表要单独一个 storage key，别和课堂记录混在一起');
 
+
+// ---------------------------------------------------------------------------
+// 生活小能手（链式教学）
+// ---------------------------------------------------------------------------
+
+const lifeList = await read('./KidLife.tsx');
+const lifePlay = await read('./KidLifePlay.tsx');
+
+// 一个模块两个分区，不是两个模块
+assert.match(routes, /path: 'life',\s*element: <LessonGuard><KidLife \/><\/LessonGuard>/, '生活小能手要有自己的入口');
+assert.match(routes, /path: 'life\/:targetId'/, '链练习台要能直接进某一条链');
+assert.match(routes, /<KidLife \/>/);
+assert.match(routes, /<KidLifePlay \/>/);
+
+// 首页第三张卡（不是第四张）—— 生活技能和解决问题是同一个入口里的两个分区
+const home = await read('./KidHome.tsx');
+assert.match(home, /testId="life-card"/, '首页要有生活小能手的卡');
+assert.match(home, /md:grid-cols-3/, '三张卡要排成三列，四列会挤');
+assert.match(home, /type LessonCardModule/, '卡片要接受 LessonCardModule，否则 ChainModule 塞不进去');
+
+// 列表页：两段式分区，按难度排
+assert.match(lifeList, /data-testid={`life-group-\$\{group\.group\}`}/, '列表要有两个分区锚点');
+assert.match(lifeList, /chainGroups\(\)/, '分区顺序由 chainGroups 给，不要在页面里写死');
+assert.match(lifeList, /CHAIN_MODE_META\[target\.defaultMode\]/, '卡片要显示默认排法');
+assert.match(lifeList, /target\.steps\.length/, '卡片要显示步数');
+assert.match(lifeList, /needsLine\(target\)/, '卡片要显示要准备什么');
+
+// 首页卡片直接告诉老师今晚练哪条，不用点进去才知道
+assert.match(home, /data-testid={`\$\{testId\}-next`}/, '三张卡都要有「下次练」那一行');
+assert.match(home, /chainNextUp\(name\)/, '生活技能的下次目标要按链的口径算');
+assert.match(home, /dttNextUp\(EXPRESSION_MODULE/, '语言表达也要给下次目标');
+assert.match(home, /dttNextUp\(COGNITION_MODULE/, '认知理解也要给下次目标');
+assert.match(home, /next=\{nextUps\.(expression|cognition|life)\}/, '算出来的目标要真的传进卡片');
+// 三列卡只有 250px 宽：练过之后用「下次练」顶掉宣传语，不能叠成第四行
+assert.match(home, /\) : next \? \(/, '「下次练」要顶掉介绍那行，不是再占一行');
+assert.match(home, /\{module\.tagline\}/, '还没有记录时仍要显示模块介绍');
+
+// 上次练到哪：极短形式，有成绩时报成绩，没有才报难度
+assert.match(home, /上次 \$\{next\.last\}/, '卡片要报上一次的成绩');
+assert.match(home, /\{next\.last \? `上次/, '有上次成绩就顶掉难度说明，两者不并列');
+
+// 直达：知道练哪条就不用先进列表再点一次
+assert.match(home, /data-testid={`\$\{testId\}-direct`}/, '卡片下面要有「直接练」按钮');
+assert.match(home, /next\.path !== module\.basePath/, '全稳了时直达和点卡片是同一个目的地，不该重复出现');
+assert.match(home, /navigate\(pendingPath \?\? module\.basePath\)/, '验证通过后要走去记住的那个目的地');
+assert.match(home, /const enter = \(path: string\)/, '两条路（点卡片 / 直接练）要共用同一个入口，验证逻辑别写两遍');
+// 区块标题写着「需长按 1.5 秒并验证进入」，直达要是单击就能用，等于自己破规矩
+assert.match(home, /function useGatedTap/, '长按规则要抽成一份，卡片和直达共用');
+assert.match(home, /toDirect\.onPointerDown/, '直达按钮也要走长按，不能单击就弹验证');
+assert.match(home, /toDirect\.onClick/);
+assert.match(home, /toCard\.onPointerDown/, '卡片本身也走同一份');
+assert.match(home, /useLongPress\(/, '仍然是 1.5 秒长按，不是换了别的门');
+
+// 首页和列表页必须同一份答案：列表页的 stableIds 从 nextUp 取，不许自己再算一遍
+assert.match(lifeList, /chainStableIds\(mine\)/, '列表页的「稳了」要复用 nextUp 的口径');
+
+// 直达路径得真能落到练习页上，否则点了会掉到 404
+const nextUpSrc = await read('../../config/nextUp.ts');
+assert.match(nextUpSrc, /path: `\$\{LIFE_MODULE\.basePath\}\/\$\{next\.id\}`/, '链式的直达路径要拼 targetId');
+assert.match(nextUpSrc, /path: `\$\{module\.basePath\}\/\$\{next\.id\}`/, 'DTT 的直达路径要拼 targetId');
+assert.match(routes, /path: 'life\/:targetId'/, '链式详情页路由要存在');
+assert.match(routes, /path: 'expression\/:targetId'/, '语言表达详情页路由要存在');
+assert.match(lifeList, /suggestNextChain/, '要推荐下一个练什么');
+
+// 练习台：四个辅助等级 + 「没做到」，一个都不能少
+assert.match(lifePlay, /CHAIN_PROMPT_ORDER\.map/, '辅助等级要从配置里取，别在页面里写死');
+assert.match(lifePlay, /life-prompt-\$\{level\}/);
+assert.match(lifePlay, /data-testid="life-prompt-failed"/, '要能记「这一步没做到」');
+
+// 老师代做的步也要走一遍，不能直接跳过 —— 孩子要看着你怎么开头
+assert.match(lifePlay, /isHelpStep/, '代做的步要有单独的分支');
+assert.match(lifePlay, /life-help-next/);
+assert.match(lifePlay, /由我代做/);
+
+// 每遍结束要有一次确认：默认独立是省事，但不能让漏记静悄悄变成满分
+assert.match(lifePlay, /life-run-confirm/, '每遍走完要确认一次');
+assert.match(lifePlay, /记了/, '确认时要报出这一遍记了几处帮助');
+assert.match(lifePlay, /helpedCount/);
+
+// **不显示完成标准那行小字** —— 现场要的是「说什么」，不是「读一段判据」
+assert.match(lifePlay, /currentStep\?\.sd/, '练习台要显示指令');
+assert.doesNotMatch(lifePlay, /criterion/, '练习台不显示完成标准，判据只在记录页和导出里出现');
+
+// 记录页：三行可改 + 分数可改 + 保存
+assert.match(lifePlay, /life-three-\$\{key\}/);
+assert.match(lifePlay, /life-score-\$\{v\}/);
+assert.match(lifePlay, /data-testid="life-save"/);
+assert.match(lifePlay, /composeChainThreeLines/, '三行记录要由程序给草稿，老师只改');
+assert.match(lifePlay, /suggestChainScore/, '分数要给建议值，但允许老师改');
+
+// 挂进同一个账本，靠 runs 区分，不新建一套 session 结构
+assert.match(lifePlay, /runs,/, '保存时要把 runs 一起落盘');
+assert.match(lifePlay, /rounds: \[\]/, '链式课没有「题」，rounds 要显式留空');
+
+
+// 列表卡要显示「上次练到哪」，否则练过的链和没练过的一模一样
+assert.match(lifeList, /chain-last-\$\{target\.id\}/, '卡片要显示上次的独立步数');
+assert.match(lifeList, /sessionChainStats/, '上次进度要按最后一遍算，不能自己拼');
+assert.match(lifeList, /lastByTarget/, '同一条链只取最近一条记录');
+// 没有记录就整行不渲染（last 为 undefined），不要退化成一行占位文字
+assert.match(lifeList, /\{last && \(/, '没有记录就不渲染上次进度那一行');
+assert.match(lifeList, /上次独立 \{last\.independent\}\/\{last\.total\} 步/, '要报出独立几步 / 共几步');
+
+// 保存后要能拿到那份 markdown：只落库不给文件，老师还得绕去家长中心
+assert.match(lifePlay, /RecordExportSheet/, '记录页要能导出');
+assert.match(lifePlay, /setExporting\(session\)/, '保存之后先弹导出，关掉才回列表');
+
 console.log('kidUi.test.mjs: ok');

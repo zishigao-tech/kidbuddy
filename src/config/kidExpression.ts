@@ -10,6 +10,7 @@
  */
 import { getExpressionTarget, isSettingId, materialLine, settingMeta, type ExpressionTarget, type SettingId } from './expressionTargets';
 import { computeDttStats, type DttOutcome, type DttPromptLevel } from './dtt';
+import { chainSectionFor, chainTargetName, normalizeRunsFor, type ChainRun } from './chainRecord';
 
 export type ExpressionSubject = '教师' | '家长';
 export type Achievement = 'independent' | 'prompted' | 'failed';
@@ -63,6 +64,16 @@ export interface ExpressionSession {
    * 不分场景看，就会把「换了个地方不会了」误判成「退步」。
    */
   setting?: SettingId;
+  /**
+   * 链式教学的逐遍记录。有值就说明这是一节链式课，这时 `rounds` 是空的
+   * （链式课没有「题」，只有「步」）。
+   *
+   * 为什么塞进同一个 session 而不是另建一本账：
+   * `nextSessionNo` 是按 student 数课时的。两本账各算各的，第 7 课时会同时
+   * 出现在两种记录里；首页统计和 rebuild_index.py 也都要改成读两处。
+   * 一个可选字段能换来零改造成本，值得。
+   */
+  runs?: ChainRun[];
   createdAt: number;
 }
 
@@ -98,7 +109,7 @@ export function normalizeBook(raw: unknown): ExpressionBook {
     if (!item || typeof item !== 'object') continue;
     const s = item as Partial<ExpressionSession>;
     if (!s.id || !s.student || !s.date || !s.targetId) continue;
-    out.sessions.push({
+    const session: ExpressionSession = {
       id: String(s.id),
       student: String(s.student),
       date: String(s.date),
@@ -132,7 +143,11 @@ export function normalizeBook(raw: unknown): ExpressionBook {
       highlight: String(s.highlight ?? ''),
       nextStep: String(s.nextStep ?? ''),
       createdAt: Number(s.createdAt) || Date.now(),
-    });
+    };
+    // 链式记录：清不干净就当没有，不要留个空数组在 JSON 里占地方
+    const runs = normalizeRunsFor(session.targetId, s.runs);
+    if (runs.length > 0) session.runs = runs;
+    out.sessions.push(session);
   }
   out.sessions.sort((a, b) => (a.date === b.date ? a.createdAt - b.createdAt : a.date.localeCompare(b.date)));
   return out;
@@ -417,7 +432,8 @@ function familyGuideSection(target: ExpressionTarget): string {
 
 export function buildSessionMarkdown(session: ExpressionSession): string {
   const target = getExpressionTarget(session.targetId);
-  const name = target?.name ?? session.targetId;
+  // 链式课的编号（A5 / P3）不是名字，别拼成「A5 A5」
+  const name = target?.name ?? chainTargetName(session.targetId) ?? session.targetId;
   const scoreText = session.score === null ? '本课未打分' : `${session.targetId}=${session.score}`;
   const scoreCell = session.score === null ? '—' : String(session.score);
   const quotes = session.rounds
@@ -453,25 +469,36 @@ export function buildSessionMarkdown(session: ExpressionSession): string {
     lines.push(`**训练场景**：${settingMeta(session.setting).emoji} ${settingMeta(session.setting).label}`);
     lines.push('');
   }
-  lines.push('**课堂记录（三行）**');
-  lines.push('');
-  lines.push(`- **今天做了什么**：${session.threeLines.did}`);
-  lines.push(`- **做到了什么**：${session.threeLines.achieved}`);
-  lines.push(`- **卡在哪**：${session.threeLines.stuck}`);
-  lines.push('');
-  lines.push('**学生原话样本**');
-  lines.push('');
-  lines.push(quotes || '> （本次没有可引用的原话）');
-  lines.push('');
-  lines.push('**目标达成**');
-  lines.push('');
-  lines.push('| 编号 | 目标 | 本次观察到的表现 | 得分 |');
-  lines.push('| --- | --- | --- | --- |');
-  lines.push(
-    `| ${session.targetId} | ${name}：${target?.standard2 ?? ''} | ${achievementEvidence(session.rounds)} | ${scoreCell} |`,
-  );
-  lines.push('');
-  lines.push(`*得分口径：${SCORE_RUBRIC}*`);
+  // 链式课（生活技能 / 解决问题）走另一套记录块：
+  // 三行 + 「步骤 × 遍」矩阵都由 chainRecord 生成，这里不再重复拼。
+  // 链路被删或数据全清掉时返回空串，自动退回下面的 DTT 格式，旧记录照样能导出。
+  const chainSection = session.runs?.length ? chainSectionFor(session.targetId, session.runs) : '';
+
+  if (chainSection) {
+    lines.push(chainSection);
+    lines.push(`*得分口径：${SCORE_RUBRIC}（链式课按最后一遍的独立完成步数占比算，不看全程平均）*`);
+    lines.push('');
+  } else {
+    lines.push('**课堂记录（三行）**');
+    lines.push('');
+    lines.push(`- **今天做了什么**：${session.threeLines.did}`);
+    lines.push(`- **做到了什么**：${session.threeLines.achieved}`);
+    lines.push(`- **卡在哪**：${session.threeLines.stuck}`);
+    lines.push('');
+    lines.push('**学生原话样本**');
+    lines.push('');
+    lines.push(quotes || '> （本次没有可引用的原话）');
+    lines.push('');
+    lines.push('**目标达成**');
+    lines.push('');
+    lines.push('| 编号 | 目标 | 本次观察到的表现 | 得分 |');
+    lines.push('| --- | --- | --- | --- |');
+    lines.push(
+      `| ${session.targetId} | ${name}：${target?.standard2 ?? ''} | ${achievementEvidence(session.rounds)} | ${scoreCell} |`,
+    );
+    lines.push('');
+    lines.push(`*得分口径：${SCORE_RUBRIC}*`);
+  }
   if (session.by === '家长') {
     lines.push('*家长课的分数与教师课记在同一条序列里，但「稳定」要求相同授课主体连续两次 2 分，跨主体只算「待复核」。*');
   }

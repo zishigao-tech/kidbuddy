@@ -1,12 +1,64 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { unlockParentArea } from '@/config/parentGate';
 import { isLessonAreaUnlocked, lessonUnlockLeftMinutes, unlockLessonArea } from '@/config/lessonGate';
-import { COGNITION_MODULE, EXPRESSION_MODULE, type LessonModule } from '@/config/lessonModules';
+import { COGNITION_MODULE, EXPRESSION_MODULE } from '@/config/lessonModules';
+import { LIFE_MODULE, type LessonCardModule } from '@/config/chainModule';
+import { chainNextUp, dttNextUp, type NextUp } from '@/config/nextUp';
 import { useKid } from './KidContext';
 import { CompanionAvatar } from './components/ChatBubble';
 import { LongPressRing, ParentGateDialog, useLongPress } from './components/ParentGate';
 import { PLAYGROUND_CHAT_ID } from './kidRoutes';
+
+/**
+ * 「长按 1.5 秒才算数」这套规则，卡片和它下面那个「⚡ 直接练」都要遵守。
+ *
+ * 抽成一份是有原因的：区块标题写着「需长按 1.5 秒并验证进入 · 防孩子误触」，
+ * 底下却留一个单击就弹窗的按钮，等于自己破自己的规矩。卡片和快捷入口
+ * 用不同实现，迟早会改一处漏一处。
+ *
+ * - 已解锁：单击直接进（老师已经在验证过的 30 分钟窗口里，不用再折腾）
+ * - 未解锁：长按 1.5 秒 → onEnter 弹验证；短按只亮一下提示
+ */
+function useGatedTap(unlocked: boolean, onEnter: () => void) {
+  const [hint, setHint] = useState(false);
+  const hintTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  /** 长按结束后浏览器还会补一次 click，用它吞掉，否则验证框刚弹出就被关掉 */
+  const completedRef = useRef(false);
+
+  const press = useLongPress(() => {
+    completedRef.current = true;
+    clearTimeout(hintTimerRef.current);
+    setHint(false);
+    onEnter();
+  });
+
+  useEffect(() => () => clearTimeout(hintTimerRef.current), []);
+
+  const onClick = () => {
+    if (unlocked) {
+      onEnter();
+      return;
+    }
+    if (completedRef.current) {
+      completedRef.current = false;
+      return;
+    }
+    setHint(true);
+    clearTimeout(hintTimerRef.current);
+    hintTimerRef.current = setTimeout(() => setHint(false), 1800);
+  };
+
+  const onPointerDown = (e: React.PointerEvent<HTMLButtonElement>) => {
+    completedRef.current = false;
+    if (!unlocked) {
+      e.currentTarget.setPointerCapture?.(e.pointerId);
+      press.start();
+    }
+  };
+
+  return { press, hint, onClick, onPointerDown };
+}
 
 /**
  * 训练模块卡片：孩子不能自己进。
@@ -16,44 +68,41 @@ function GatedLessonCard({
   module,
   gradient,
   testId,
+  next,
 }: {
-  module: LessonModule;
+  module: LessonCardModule;
   gradient: string;
   testId: string;
+  /** 下次练什么。没账本或全稳了给 null / 全稳提示，这一行就不渲染 */
+  next?: NextUp | null;
 }) {
   const navigate = useNavigate();
   const unlocked = isLessonAreaUnlocked();
   const left = lessonUnlockLeftMinutes();
   const [open, setOpen] = useState(false);
-  const [tapHint, setTapHint] = useState(false);
-  const hintTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
-  const completedRef = useRef(false);
+  /**
+   * 验证通过后往哪走。点卡片进列表，点「⚡ 直接练」直达那条链，
+   * 两条路都过同一个验证，所以得记住这次是为哪条路开的弹窗。
+   */
+  const [pendingPath, setPendingPath] = useState<string | null>(null);
 
-  const press = useLongPress(() => {
-    completedRef.current = true;
-    clearTimeout(hintTimerRef.current);
-    setTapHint(false);
-    if (!isLessonAreaUnlocked()) setOpen(true);
-  });
-
-  useEffect(() => () => clearTimeout(hintTimerRef.current), []);
-
-  const handleClick = () => {
+  /** 唯一的入口。已解锁就直接走，没解锁先记下目的地再弹验证 */
+  const enter = (path: string) => {
     if (isLessonAreaUnlocked()) {
-      navigate(module.basePath);
+      navigate(path);
       return;
     }
-    if (completedRef.current) {
-      completedRef.current = false;
-      return;
-    }
-    setTapHint(true);
-    clearTimeout(hintTimerRef.current);
-    hintTimerRef.current = setTimeout(() => setTapHint(false), 1800);
+    setPendingPath(path);
+    setOpen(true);
   };
 
+  const toCard = useGatedTap(unlocked, () => enter(module.basePath));
+  const toDirect = useGatedTap(unlocked, () => enter(next?.path ?? module.basePath));
+
   return (
-    <>
+    // 卡片 +「⚡ 直接练」是上下两个可点目标，必须包一层，
+    // 否则在 grid 里会各占一格，三列布局直接散架
+    <div className="flex min-w-0 flex-col">
       <button
         type="button"
         data-testid={testId}
@@ -61,24 +110,17 @@ function GatedLessonCard({
         title="长按 1.5 秒进入 · 需家长或老师验证"
         onContextMenu={(e) => e.preventDefault()}
         style={{ touchAction: 'none', WebkitTouchCallout: 'none' }}
-        onPointerDown={(e) => {
-          completedRef.current = false;
-          if (!isLessonAreaUnlocked()) {
-            e.currentTarget.setPointerCapture?.(e.pointerId);
-            press.start();
-          }
-        }}
-        onPointerUp={press.cancel}
-        onPointerCancel={press.cancel}
-        onLostPointerCapture={press.cancel}
+        onPointerDown={toCard.onPointerDown}
+        onPointerUp={toCard.press.cancel}
+        onPointerCancel={toCard.press.cancel}
+        onLostPointerCapture={toCard.press.cancel}
         onKeyDown={(e) => {
           if (e.key === 'Enter' || e.key === ' ') {
             e.preventDefault();
-            if (isLessonAreaUnlocked()) navigate(module.basePath);
-            else setOpen(true);
+            enter(module.basePath);
           }
         }}
-        onClick={handleClick}
+        onClick={toCard.onClick}
         className={`relative flex min-h-14 select-none items-center gap-3.5 overflow-hidden rounded-[28px] p-4 text-left transition active:scale-[0.99] ${
           unlocked
             ? `bg-gradient-to-r ${gradient} text-white shadow-md`
@@ -104,31 +146,78 @@ function GatedLessonCard({
               {unlocked ? `🔓 已解锁 · 剩 ${left} 分` : '🔒 长按 1.5 秒'}
             </span>
           </div>
-          <div
-            className={`mt-0.5 truncate text-sm ${
-              press.pressing
-                ? unlocked
-                  ? 'font-bold text-white'
-                  : `font-bold ${module.accent.text}`
-                : tapHint
-                  ? 'font-bold text-amber-600'
-                  : unlocked
-                    ? 'text-white/90'
-                    : 'text-slate-500'
-            }`}
-          >
-            {press.pressing
-              ? '别松手，马上进入验证…'
-              : tapHint
-                ? '为防孩子误触，请长按 1.5 秒进入验证'
-                : module.tagline}
-          </div>
+          {/**
+           * 第二行三选一：长按/误触的临时提示 > 下次练什么 > 模块介绍。
+           * 练过之后「下次练什么」比宣传语有用，所以让它顶掉那行，
+           * 不再多占一行——三列卡本来就只有 250px 宽，叠四行会挤到看不清。
+           */}
+          {toCard.press.pressing || toCard.hint ? (
+            <div
+              className={`mt-0.5 truncate text-sm font-bold ${
+                toCard.press.pressing ? (unlocked ? 'text-white' : module.accent.text) : 'text-amber-600'
+              }`}
+            >
+              {toCard.press.pressing ? '别松手，马上进入验证…' : '为防孩子误触，请长按 1.5 秒进入验证'}
+            </div>
+          ) : next ? (
+            <div
+              data-testid={`${testId}-next`}
+              className={`mt-1 flex items-center gap-1.5 text-xs font-bold ${unlocked ? 'text-white' : 'text-slate-600'}`}
+            >
+              <span aria-hidden>🎯</span>
+              <span className="truncate">下次练 {next.label}</span>
+              <span className={`ml-auto shrink-0 text-[11px] font-semibold ${unlocked ? 'text-white/70' : 'text-slate-400'}`}>
+                {/* 有上一次的成绩就报成绩，没有才报难度——练过之后更需要知道进度 */}
+                {next.last ? `上次 ${next.last}` : next.meta}
+              </span>
+            </div>
+          ) : (
+            <div className={`mt-0.5 truncate text-sm ${unlocked ? 'text-white/90' : 'text-slate-500'}`}>
+              {module.tagline}
+            </div>
+          )}
         </div>
         <span className={`text-xl font-extrabold ${unlocked ? 'text-white' : 'text-slate-300'}`} aria-hidden>
           →
         </span>
-        <LongPressRing pressing={press.pressing} className="rounded-[28px]" />
+        <LongPressRing pressing={toCard.press.pressing} className="rounded-[28px]" />
       </button>
+
+      {/* 知道要练哪条就不用先进列表再点一次。全稳了时 path 就是列表页，那和点卡片重复，不显示 */}
+      {next && next.path !== module.basePath && (
+        <button
+          type="button"
+          data-testid={`${testId}-direct`}
+          aria-label={
+            unlocked
+              ? `直接开始练 ${next.label}`
+              : `直接开始练 ${next.label}（长按 1.5 秒，需家长或老师验证）`
+          }
+          title={unlocked ? `直接开始练 ${next.label}` : '长按 1.5 秒进入 · 需家长或老师验证'}
+          onContextMenu={(e) => e.preventDefault()}
+          style={{ touchAction: 'none', WebkitTouchCallout: 'none' }}
+          onPointerDown={toDirect.onPointerDown}
+          onPointerUp={toDirect.press.cancel}
+          onPointerCancel={toDirect.press.cancel}
+          onLostPointerCapture={toDirect.press.cancel}
+          onClick={toDirect.onClick}
+          className={`relative mt-1.5 flex h-12 select-none items-center justify-center gap-1.5 overflow-hidden rounded-2xl px-3 text-xs font-bold transition active:scale-[0.99] ${
+            unlocked
+              ? 'bg-white text-sky-600 shadow-sm ring-1 ring-slate-200 hover:ring-slate-300'
+              : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+          }`}
+        >
+          <span aria-hidden>{unlocked ? '⚡' : '🔒'}</span>
+          <span className={`truncate ${toDirect.hint ? 'text-amber-600' : ''}`}>
+            {toDirect.press.pressing
+              ? '别松手，马上进入验证…'
+              : toDirect.hint
+                ? '为防孩子误触，请长按 1.5 秒'
+                : `直接练 · ${next.label}`}
+          </span>
+          <LongPressRing pressing={toDirect.press.pressing} className="rounded-2xl" />
+        </button>
+      )}
 
       {open && (
         <ParentGateDialog
@@ -138,11 +227,12 @@ function GatedLessonCard({
           onSuccess={() => {
             unlockLessonArea();
             setOpen(false);
-            navigate(module.basePath);
+            navigate(pendingPath ?? module.basePath);
+            setPendingPath(null);
           }}
         />
       )}
-    </>
+    </div>
   );
 }
 
@@ -151,6 +241,22 @@ export default function KidHome() {
   const { companions, companionsLoading, memory, aiConfigured, aiConfigChecked } = useKid();
   const [gateOpen, setGateOpen] = useState(false);
   const name = memory.nickname || '小朋友';
+
+  /**
+   * 三张卡各自的「下次练什么」。算一次就够：从别的页面回来时 KidHome 会重新挂载。
+   * 账本读失败时返回 null，卡片上那一行直接不渲染。
+   */
+  const nextUps = useMemo(() => {
+    try {
+      return {
+        expression: dttNextUp(EXPRESSION_MODULE, name),
+        cognition: dttNextUp(COGNITION_MODULE, name),
+        life: chainNextUp(name),
+      };
+    } catch {
+      return { expression: null, cognition: null, life: null };
+    }
+  }, [name]);
 
   return (
     <div className="flex-1 overflow-y-auto px-5 pb-[max(32px,env(safe-area-inset-bottom))] pt-2">
@@ -279,9 +385,20 @@ export default function KidHome() {
             需长按 1.5 秒并验证进入 · 防孩子误触
           </span>
         </div>
-        <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-          <GatedLessonCard module={EXPRESSION_MODULE} gradient="from-rose-400 to-orange-400" testId="expression-card" />
-          <GatedLessonCard module={COGNITION_MODULE} gradient="from-indigo-400 to-violet-500" testId="cognition-card" />
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+          <GatedLessonCard
+            module={EXPRESSION_MODULE}
+            gradient="from-rose-400 to-orange-400"
+            testId="expression-card"
+            next={nextUps.expression}
+          />
+          <GatedLessonCard
+            module={COGNITION_MODULE}
+            gradient="from-indigo-400 to-violet-500"
+            testId="cognition-card"
+            next={nextUps.cognition}
+          />
+          <GatedLessonCard module={LIFE_MODULE} gradient="from-sky-400 to-teal-400" testId="life-card" next={nextUps.life} />
         </div>
       </section>
 

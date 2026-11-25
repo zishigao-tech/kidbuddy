@@ -8,6 +8,8 @@ import KidExpression from './pages/kid/KidExpression';
 import KidExpressionPlay from './pages/kid/KidExpressionPlay';
 import KidCognition from './pages/kid/KidCognition';
 import KidCognitionPlay from './pages/kid/KidCognitionPlay';
+import KidLife from './pages/kid/KidLife';
+import KidLifePlay from './pages/kid/KidLifePlay';
 import KidStorybooks from './pages/kid/KidStorybooks';
 import KidStorybookCreate from './pages/kid/KidStorybookCreate';
 import KidStorybookRead from './pages/kid/KidStorybookRead';
@@ -29,6 +31,8 @@ export const router = createBrowserRouter([
       { path: 'expression/:targetId', element: <LessonGuard><KidExpressionPlay /></LessonGuard> },
       { path: 'cognition', element: <LessonGuard><KidCognition /></LessonGuard> },
       { path: 'cognition/:targetId', element: <LessonGuard><KidCognitionPlay /></LessonGuard> },
+      { path: 'life', element: <LessonGuard><KidLife /></LessonGuard> },
+      { path: 'life/:targetId', element: <LessonGuard><KidLifePlay /></LessonGuard> },
       { path: 'books', element: <KidStorybooks /> },
       { path: 'books/new', element: <KidStorybookCreate /> },
       { path: 'books/:bookId', element: <KidStorybookRead /> },
