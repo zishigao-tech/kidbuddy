@@ -170,7 +170,7 @@ const session = (over) => ({
   assert.match(teacherMd, /targets: K1/);
   assert.match(teacherMd, /scores: K1=1/);
   assert.match(teacherMd, /### 2026-11-24 · 第1课时 · 说清一件事/);
-  assert.match(teacherMd, /\*\*家长沟通要点\*\*/);
+  assert.match(teacherMd, /\*\*家庭沟通要点\*\*/);
   assert.doesNotMatch(teacherMd, /家庭训练指导/);
   assert.match(teacherMd, /> 「我在厨房吃了早饭然后换衣服」/, '原话照录');
 
@@ -181,7 +181,7 @@ const session = (over) => ({
   assert.match(parentMd, /下次还是练这个/);
   assert.match(parentMd, /做不到就这样降级/);
   assert.match(parentMd, /这三件先别做/);
-  assert.doesNotMatch(parentMd, /家长沟通要点/);
+  assert.doesNotMatch(parentMd, /家庭沟通要点/);
 
   const noScore = mod.buildSessionMarkdown(session({ rounds, score: null }));
   assert.match(noScore, /scores: \n?/);

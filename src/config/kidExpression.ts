@@ -51,7 +51,7 @@ export interface ExpressionSession {
   rounds: ExpressionRound[];
   score: Score | null;
   threeLines: { did: string; achieved: string; stuck: string };
-  /** 家长沟通要点 / 家庭训练指导里的「一句进步」 */
+  /** 家庭沟通要点 / 家庭训练指导里的「一句进步」 */
   highlight: string;
   /** 下次调整 / 下次课调整 */
   nextStep: string;
@@ -479,9 +479,9 @@ export function buildSessionMarkdown(session: ExpressionSession): string {
   if (session.by === '家长' && target) {
     lines.push(familyGuideSection(target));
   } else {
-    lines.push('**家长沟通要点**');
+    lines.push('**家庭沟通要点**');
     lines.push('');
-    lines.push(`- **可以告诉家长的一句进步**：${session.highlight || '（待补充）'}`);
+    lines.push(`- **可以告诉家庭的一句进步**：${session.highlight || '（待补充）'}`);
     lines.push(`- **本周家庭任务**：${session.nextStep || '（待补充）'}`);
   }
   lines.push('');

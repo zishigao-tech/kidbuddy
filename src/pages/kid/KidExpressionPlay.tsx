@@ -892,11 +892,11 @@ function DttSession({
 
           <div className="rounded-[28px] bg-white p-4 shadow-sm">
             <h2 className="mb-3 text-lg font-extrabold text-slate-800">
-              四、{by === '家长' ? '下次课调整（教师备课用）' : '家长沟通要点'}
+              四、{by === '家长' ? '下次课调整（教师备课用）' : '家庭沟通要点'}
             </h2>
             <label className="block">
               <span className="text-xs font-bold text-slate-500">
-                {by === '家长' ? '家长课不写这段，导出时自动换成家庭训练指导八项' : '可以告诉家长的一句进步'}
+                {by === '家长' ? '家长课不写这段，导出时自动换成家庭训练指导八项' : '可以告诉家庭的一句进步'}
               </span>
               <textarea
                 value={highlight}
