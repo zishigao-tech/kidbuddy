@@ -2,7 +2,8 @@ import { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { unlockParentArea } from '@/config/parentGate';
 import { isLessonAreaUnlocked, lessonUnlockLeftMinutes, unlockLessonArea } from '@/config/lessonGate';
-import { COGNITION_MODULE, EXPRESSION_MODULE, type LessonModule } from '@/config/lessonModules';
+import { COGNITION_MODULE, EXPRESSION_MODULE } from '@/config/lessonModules';
+import { LIFE_MODULE, type LessonCardModule } from '@/config/chainModule';
 import { useKid } from './KidContext';
 import { CompanionAvatar } from './components/ChatBubble';
 import { LongPressRing, ParentGateDialog, useLongPress } from './components/ParentGate';
@@ -17,7 +18,7 @@ function GatedLessonCard({
   gradient,
   testId,
 }: {
-  module: LessonModule;
+  module: LessonCardModule;
   gradient: string;
   testId: string;
 }) {
@@ -279,9 +280,10 @@ export default function KidHome() {
             需长按 1.5 秒并验证进入 · 防孩子误触
           </span>
         </div>
-        <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
           <GatedLessonCard module={EXPRESSION_MODULE} gradient="from-rose-400 to-orange-400" testId="expression-card" />
           <GatedLessonCard module={COGNITION_MODULE} gradient="from-indigo-400 to-violet-500" testId="cognition-card" />
+          <GatedLessonCard module={LIFE_MODULE} gradient="from-sky-400 to-teal-400" testId="life-card" />
         </div>
       </section>
 

@@ -305,7 +305,12 @@ export function composeChainThreeLines(target: ChainTarget, runs: ChainRun[]): C
   const modes = Array.from(new Set(runs.map((r) => CHAIN_MODE_META[r.mode]?.label ?? r.mode)));
   const firstPlan = stats.runs[0]?.plan;
 
-  const did = `${target.name}练 ${runs.length} 遍，${modes.join(' / ')}${firstPlan?.line && runs.length === 1 ? `（${firstPlan.line}）` : ''}`;
+  // 只有一遍时把分工说出来（「第 1–4 步我做完，第 5–9 步他自己做」），
+  // 多遍就只说遍数和排法——每遍分工会不一样，一句概括反而错。
+  const did =
+    modes.length > 0
+      ? `${target.name}练 ${runs.length} 遍，${modes.join(' / ')}${runs.length === 1 && firstPlan?.line ? `：${firstPlan.line}` : ''}`
+      : `${target.name}练 ${runs.length} 遍`;
 
   const last = stats.last;
   const achieved = last
