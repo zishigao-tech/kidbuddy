@@ -300,8 +300,25 @@ assert.match(home, /next=\{nextUps\.(expression|cognition|life)\}/, '算出来�
 assert.match(home, /\) : next \? \(/, '「下次练」要顶掉介绍那行，不是再占一行');
 assert.match(home, /\{module\.tagline\}/, '还没有记录时仍要显示模块介绍');
 
+// 上次练到哪：极短形式，有成绩时报成绩，没有才报难度
+assert.match(home, /上次 \$\{next\.last\}/, '卡片要报上一次的成绩');
+assert.match(home, /\{next\.last \? `上次/, '有上次成绩就顶掉难度说明，两者不并列');
+
+// 直达：知道练哪条就不用先进列表再点一次
+assert.match(home, /data-testid={`\$\{testId\}-direct`}/, '卡片下面要有「直接练」按钮');
+assert.match(home, /next\.path !== module\.basePath/, '全稳了时直达和点卡片是同一个目的地，不该重复出现');
+assert.match(home, /navigate\(pendingPath \?\? module\.basePath\)/, '验证通过后要走去记住的那个目的地');
+assert.match(home, /const enter = \(path: string\)/, '两条路（点卡片 / 直接练）要共用同一个入口，验证逻辑别写两遍');
+
 // 首页和列表页必须同一份答案：列表页的 stableIds 从 nextUp 取，不许自己再算一遍
 assert.match(lifeList, /chainStableIds\(mine\)/, '列表页的「稳了」要复用 nextUp 的口径');
+
+// 直达路径得真能落到练习页上，否则点了会掉到 404
+const nextUpSrc = await read('../../config/nextUp.ts');
+assert.match(nextUpSrc, /path: `\$\{LIFE_MODULE\.basePath\}\/\$\{next\.id\}`/, '链式的直达路径要拼 targetId');
+assert.match(nextUpSrc, /path: `\$\{module\.basePath\}\/\$\{next\.id\}`/, 'DTT 的直达路径要拼 targetId');
+assert.match(routes, /path: 'life\/:targetId'/, '链式详情页路由要存在');
+assert.match(routes, /path: 'expression\/:targetId'/, '语言表达详情页路由要存在');
 assert.match(lifeList, /suggestNextChain/, '要推荐下一个练什么');
 
 // 练习台：四个辅助等级 + 「没做到」，一个都不能少

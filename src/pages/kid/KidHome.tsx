@@ -31,14 +31,32 @@ function GatedLessonCard({
   const left = lessonUnlockLeftMinutes();
   const [open, setOpen] = useState(false);
   const [tapHint, setTapHint] = useState(false);
+  /**
+   * 验证通过后往哪走。点卡片进列表，点「⚡ 直接练」直达那条链，
+   * 两条路都过同一个验证，所以得记住这次是为哪条路开的弹窗。
+   */
+  const [pendingPath, setPendingPath] = useState<string | null>(null);
   const hintTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const completedRef = useRef(false);
+
+  /** 唯一的入口。已解锁就直接走，没解锁先记下目的地再弹验证 */
+  const enter = (path: string) => {
+    if (isLessonAreaUnlocked()) {
+      navigate(path);
+      return;
+    }
+    setPendingPath(path);
+    setOpen(true);
+  };
 
   const press = useLongPress(() => {
     completedRef.current = true;
     clearTimeout(hintTimerRef.current);
     setTapHint(false);
-    if (!isLessonAreaUnlocked()) setOpen(true);
+    if (!isLessonAreaUnlocked()) {
+      setPendingPath(module.basePath);
+      setOpen(true);
+    }
   });
 
   useEffect(() => () => clearTimeout(hintTimerRef.current), []);
@@ -58,7 +76,9 @@ function GatedLessonCard({
   };
 
   return (
-    <>
+    // 卡片 +「⚡ 直接练」是上下两个可点目标，必须包一层，
+    // 否则在 grid 里会各占一格，三列布局直接散架
+    <div className="flex min-w-0 flex-col">
       <button
         type="button"
         data-testid={testId}
@@ -130,7 +150,8 @@ function GatedLessonCard({
               <span aria-hidden>🎯</span>
               <span className="truncate">下次练 {next.label}</span>
               <span className={`ml-auto shrink-0 text-[11px] font-semibold ${unlocked ? 'text-white/70' : 'text-slate-400'}`}>
-                {next.meta}
+                {/* 有上一次的成绩就报成绩，没有才报难度——练过之后更需要知道进度 */}
+                {next.last ? `上次 ${next.last}` : next.meta}
               </span>
             </div>
           ) : (
@@ -145,6 +166,23 @@ function GatedLessonCard({
         <LongPressRing pressing={press.pressing} className="rounded-[28px]" />
       </button>
 
+      {/* 知道要练哪条就不用先进列表再点一次。全稳了时 path 就是列表页，那和点卡片重复，不显示 */}
+      {next && next.path !== module.basePath && (
+        <button
+          type="button"
+          data-testid={`${testId}-direct`}
+          onClick={() => enter(next.path)}
+          className={`mt-1.5 flex h-12 items-center justify-center gap-1.5 rounded-2xl px-3 text-xs font-bold transition active:scale-[0.99] ${
+            unlocked
+              ? 'bg-white text-sky-600 shadow-sm ring-1 ring-slate-200 hover:ring-slate-300'
+              : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+          }`}
+        >
+          <span aria-hidden>⚡</span>
+          <span className="truncate">直接练 · {next.label}</span>
+        </button>
+      )}
+
       {open && (
         <ParentGateDialog
           title="课堂入口验证"
@@ -153,11 +191,12 @@ function GatedLessonCard({
           onSuccess={() => {
             unlockLessonArea();
             setOpen(false);
-            navigate(module.basePath);
+            navigate(pendingPath ?? module.basePath);
+            setPendingPath(null);
           }}
         />
       )}
-    </>
+    </div>
   );
 }
 
