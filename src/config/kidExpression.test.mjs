@@ -378,6 +378,10 @@ assert.match(chainMd, /按最后一遍的独立完成步数占比算/, '得分�
 // 三行由程序生成，不用 session.threeLines 里那份
 assert.doesNotMatch(chainMd, /应由程序生成/);
 
+// 「目标」行要写链的名字，不能把编号当名字拼成「A5 A5」
+assert.match(chainMd, /\*\*目标\*\*：A5 洗手/, '目标行要带上链名');
+assert.doesNotMatch(chainMd, /A5 A5/, '编号和名字不能是同一个');
+
 // meta 块只能有固定几个 key：rebuild_index.py 见到未知 key 会走兜底分支
 const metaBlock = chainMd.split('-->')[0];
 assert.match(metaBlock, /targets: A5/);

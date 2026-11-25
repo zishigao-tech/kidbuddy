@@ -415,3 +415,11 @@ export function chainSectionFor(targetId: string, runs: ChainRun[]): string {
   if (!target || runs.length === 0) return '';
   return buildChainSection(target, runs);
 }
+
+/**
+ * 这条链叫什么。只给 kidExpression 的「目标」行用——
+ * 链的编号是 A5 / P3，直接当名字拼出去会写成「A5 A5」。
+ */
+export function chainTargetName(targetId: string): string | null {
+  return getChainTarget(targetId)?.name ?? null;
+}

@@ -10,7 +10,7 @@
  */
 import { getExpressionTarget, isSettingId, materialLine, settingMeta, type ExpressionTarget, type SettingId } from './expressionTargets';
 import { computeDttStats, type DttOutcome, type DttPromptLevel } from './dtt';
-import { chainSectionFor, normalizeRunsFor, type ChainRun } from './chainRecord';
+import { chainSectionFor, chainTargetName, normalizeRunsFor, type ChainRun } from './chainRecord';
 
 export type ExpressionSubject = '教师' | '家长';
 export type Achievement = 'independent' | 'prompted' | 'failed';
@@ -432,7 +432,8 @@ function familyGuideSection(target: ExpressionTarget): string {
 
 export function buildSessionMarkdown(session: ExpressionSession): string {
   const target = getExpressionTarget(session.targetId);
-  const name = target?.name ?? session.targetId;
+  // 链式课的编号（A5 / P3）不是名字，别拼成「A5 A5」
+  const name = target?.name ?? chainTargetName(session.targetId) ?? session.targetId;
   const scoreText = session.score === null ? '本课未打分' : `${session.targetId}=${session.score}`;
   const scoreCell = session.score === null ? '—' : String(session.score);
   const quotes = session.rounds
