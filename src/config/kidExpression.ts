@@ -8,7 +8,7 @@
  *
  * 零外部运行时依赖（仅 localStorage），便于 node 直接 transpile 单测。
  */
-import { getExpressionTarget, materialLine, type ExpressionTarget } from './expressionTargets';
+import { getExpressionTarget, isSettingId, materialLine, settingMeta, type ExpressionTarget, type SettingId } from './expressionTargets';
 import { computeDttStats, type DttOutcome, type DttPromptLevel } from './dtt';
 
 export type ExpressionSubject = '教师' | '家长';
@@ -51,12 +51,18 @@ export interface ExpressionSession {
   rounds: ExpressionRound[];
   score: Score | null;
   threeLines: { did: string; achieved: string; stuck: string };
-  /** 家长沟通要点 / 家庭训练指导里的「一句进步」 */
+  /** 家庭沟通要点 / 家庭训练指导里的「一句进步」 */
   highlight: string;
   /** 下次调整 / 下次课调整 */
   nextStep: string;
   /** 这节课实际用的教具（槽位 → 实际物品），换教室、换老师时用来判断可比性 */
   materials?: Record<string, string>;
+  /**
+   * 这节课在哪个训练场景做的。旧记录没有这个字段。
+   * 同一个目标在桌面上能到 2 分、在户外只有 1 分，是很常见的事——
+   * 不分场景看，就会把「换了个地方不会了」误判成「退步」。
+   */
+  setting?: SettingId;
   createdAt: number;
 }
 
@@ -116,6 +122,7 @@ export function normalizeBook(raw: unknown): ExpressionBook {
             repeatIndex: Number(r?.repeatIndex) || 1,
           }))
         : [],
+      setting: isSettingId(s.setting) ? s.setting : undefined,
       score: s.score === 0 || s.score === 1 || s.score === 2 ? s.score : null,
       threeLines: {
         did: String(s.threeLines?.did ?? ''),
@@ -440,6 +447,12 @@ export function buildSessionMarkdown(session: ExpressionSession): string {
     lines.push(`**本次教具**：${materialLine(target.materials, session.materials ?? {})}`);
     lines.push('');
   }
+  // 场景写进正文不进 meta：隔壁的 rebuild_index.py 只认固定几个 key，
+  // 多一个未知 key 会走到它的兜底分支，宁可保守一点，正文里人也能看见。
+  if (session.setting) {
+    lines.push(`**训练场景**：${settingMeta(session.setting).emoji} ${settingMeta(session.setting).label}`);
+    lines.push('');
+  }
   lines.push('**课堂记录（三行）**');
   lines.push('');
   lines.push(`- **今天做了什么**：${session.threeLines.did}`);
@@ -466,9 +479,9 @@ export function buildSessionMarkdown(session: ExpressionSession): string {
   if (session.by === '家长' && target) {
     lines.push(familyGuideSection(target));
   } else {
-    lines.push('**家长沟通要点**');
+    lines.push('**家庭沟通要点**');
     lines.push('');
-    lines.push(`- **可以告诉家长的一句进步**：${session.highlight || '（待补充）'}`);
+    lines.push(`- **可以告诉家庭的一句进步**：${session.highlight || '（待补充）'}`);
     lines.push(`- **本周家庭任务**：${session.nextStep || '（待补充）'}`);
   }
   lines.push('');

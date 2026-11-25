@@ -4,14 +4,19 @@ import {
   MODALITY_LABEL,
   SESSION_TASK_COUNT,
   fillSlots,
+  isSettingId,
   materialLine,
-  pickSessionTasks,
   recordTaskUsage,
   resolvePicks,
+  sceneDifficulty,
+  settingMeta,
   type ExpressionTarget,
   type ExpressionTask,
   type MaterialSlot,
+  type SettingId,
 } from '@/config/expressionTargets';
+import { pickSceneTasks, sceneMixLine, type ScenePick } from '@/config/taskScenes';
+import { loadTuning, tunedDifficulty, tunedSceneDifficulty } from '@/config/targetTuning';
 import { EXPRESSION_MODULE, type LessonModule } from '@/config/lessonModules';
 import {
   DTT_OUTCOME_LABEL,
@@ -148,6 +153,20 @@ function readSubject(scope: string): ExpressionSubject {
   }
 }
 
+/**
+ * 列表页选了哪个场景，练习台跟着走。
+ * 老师是「在地面」那一栏点进来的，抽题就该优先抽地面题——不然筛完场景
+ * 进来还是随机抽，筛选白做了。没选场景时是 'all'，行为和以前一样。
+ */
+function readScene(scope: string): SettingId | 'all' {
+  try {
+    const raw = localStorage.getItem(`${scope}.scene`);
+    return isSettingId(raw) ? raw : 'all';
+  } catch {
+    return 'all';
+  }
+}
+
 interface Line {
   id: string;
   isKid: boolean;
@@ -169,6 +188,13 @@ interface TrialSpec {
   taskIndex: number;
   repeatIndex: number;
 }
+
+/**
+ * 「试次」是 DTT 的标准术语（trial），做 ABA 的老师认这个词，但家长不一定。
+ * 不从文案里删掉它——「次」在这个页面里已经指别的东西了，改成「次」会和
+ * 「第 1 遍」「已练 3 次」撞车。所以保留术语，在所有计数的地方挂同一句解释。
+ */
+const TRIAL_HINT = '试次 = 一道题的一次完整回合。一节课抽 4 道题，每道练 2 遍，就是 8 个试次。';
 
 function newId(prefix: string): string {
   return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
@@ -264,6 +290,8 @@ function DttSession({
   const scope = module.storagePrefix;
   const student = readStudent(scope, memory.nickname || '小朋友');
   const by = readSubject(scope);
+  /** 列表页调过的难度，进页面读一次；练习中不改，避免这一节试次口径中途变 */
+  const [tuning] = useState(() => loadTuning(scope));
 
   const [picks, setPicks] = useState<Record<string, string>>(() =>
     resolvePicks(target.materials, readPicks(scope, target.id)),
@@ -272,14 +300,24 @@ function DttSession({
   const [showMaterials, setShowMaterials] = useState(false);
   const [showGuideTips, setShowGuideTips] = useState(false);
   const [mobilePane, setMobilePane] = useState<'bench' | 'chat'>('bench');
-  /** 本节抽到的题（题库有 8 道，一节只练 4 道，按「多久没练过」轮换） */
-  const [drawnIds, setDrawnIds] = useState<string[]>(() =>
-    pickSessionTasks(target.tasks, SESSION_TASK_COUNT, readRotation(scope, student, target.id)).map((t) => t.id),
+  /**
+   * 本节在哪个场景练：跟着列表页的筛选走，进练习台后不再变（换了要重进）。
+   * 中途改场景会让已经判过的试次口径不一致，记录里就说不清「这一节在哪做的」。
+   */
+  const [liveScene] = useState<SettingId | 'all'>(() => readScene(scope));
+  /**
+   * 本节抽到的题（题库 8 道，一节只练 4 道，按「多久没练过」轮换）。
+   * 场景优先：先抽本场景专属的，不够再从同目标的其他场景借，borrowed 记借了几道。
+   */
+  const [pick, setPick] = useState<ScenePick<ExpressionTask>>(() =>
+    pickSceneTasks(target.tasks, liveScene, SESSION_TASK_COUNT, readRotation(scope, student, target.id)),
   );
-  const drawnTasks = useMemo(() => {
-    const byId = new Map(target.tasks.map((t) => [t.id, t]));
-    return drawnIds.map((id) => byId.get(id)).filter((t): t is ExpressionTask => Boolean(t));
-  }, [target, drawnIds]);
+  const drawnTasks = pick.tasks;
+  const drawnIds = useMemo(() => drawnTasks.map((t) => t.id), [drawnTasks]);
+  /** 这一节实际用的难度（老师调过的优先），和配置值分开存，用来判断要不要标「已调」 */
+  const playStep =
+    liveScene === 'all' ? tunedDifficulty(target, tuning) : tunedSceneDifficulty(target, liveScene, tuning);
+  const playBaseStep = liveScene === 'all' ? target.difficulty : sceneDifficulty(target, liveScene);
   const tasks = useMemo(() => fillTasks(drawnTasks, target.materials, picks), [drawnTasks, target, picks]);
   const [repeats, setRepeats] = useState(2);
   const [trials, setTrials] = useState<TrialSpec[]>(() => buildTrials(tasks, 2));
@@ -433,13 +471,13 @@ function DttSession({
   /** 换一批：还没开始判定时，从题库里另外抽几道 */
   const redraw = () => {
     if (roundsRef.current.some((r) => r.achievement !== null || r.skipped)) return;
-    const nextDrawn = pickSessionTasks(target.tasks, SESSION_TASK_COUNT, [
+    const nextPick = pickSceneTasks(target.tasks, liveScene, SESSION_TASK_COUNT, [
       ...readRotation(scope, student, target.id),
       ...drawnIds,
     ]);
-    const nextTasks = fillTasks(nextDrawn, target.materials, picks);
+    const nextTasks = fillTasks(nextPick.tasks, target.materials, picks);
     const nextTrials = buildTrials(nextTasks, repeats);
-    setDrawnIds(nextDrawn.map((t) => t.id));
+    setPick(nextPick);
     setTrials(nextTrials);
     persistRounds(nextTrials.map((s) => makeRound(s, nextTasks)));
     setIdx(0);
@@ -560,6 +598,7 @@ function DttSession({
       highlight,
       nextStep,
       materials: picks,
+      setting: liveScene === 'all' ? undefined : liveScene,
       createdAt: Date.now(),
     };
     module.addSession(book, session);
@@ -705,7 +744,12 @@ function DttSession({
                 return (
                   <div key={r.taskId} className="rounded-2xl border-2 border-slate-100 p-3.5">
                     <div className="flex flex-wrap items-start gap-2">
-                      <span className="rounded-lg bg-slate-100 px-2 py-0.5 text-xs font-bold text-slate-600">第 {i + 1} 试次</span>
+                      <span
+                        title={`第 ${i + 1} 个试次：${TRIAL_HINT}`}
+                        className="cursor-help rounded-lg bg-slate-100 px-2 py-0.5 text-xs font-bold text-slate-600"
+                      >
+                        第 {i + 1} 试次
+                      </span>
                       <span className={`rounded-full px-2 py-0.5 text-xs font-bold ${mark.tone}`}>{mark.text}</span>
                       <span className="min-w-0 flex-1 text-sm font-bold text-slate-700">{r.ask}</span>
                     </div>
@@ -848,11 +892,11 @@ function DttSession({
 
           <div className="rounded-[28px] bg-white p-4 shadow-sm">
             <h2 className="mb-3 text-lg font-extrabold text-slate-800">
-              四、{by === '家长' ? '下次课调整（教师备课用）' : '家长沟通要点'}
+              四、{by === '家长' ? '下次课调整（教师备课用）' : '家庭沟通要点'}
             </h2>
             <label className="block">
               <span className="text-xs font-bold text-slate-500">
-                {by === '家长' ? '家长课不写这段，导出时自动换成家庭训练指导八项' : '可以告诉家长的一句进步'}
+                {by === '家长' ? '家长课不写这段，导出时自动换成家庭训练指导八项' : '可以告诉家庭的一句进步'}
               </span>
               <textarea
                 value={highlight}
@@ -875,7 +919,12 @@ function DttSession({
           </div>
 
           <div className="flex flex-wrap gap-2 pb-4">
-            <button type="button" onClick={() => setPhase('run')} className="h-14 flex-1 rounded-2xl bg-white text-base font-bold text-slate-600 shadow-sm">
+            <button
+              type="button"
+              onClick={() => setPhase('run')}
+              title={`回去继续练，不保存这一节。${TRIAL_HINT}`}
+              className="h-14 flex-1 rounded-2xl bg-white text-base font-bold text-slate-600 shadow-sm"
+            >
               回去再练几个试次
             </button>
             <button type="button" onClick={save} data-testid="save-session" className={`h-14 flex-[2] rounded-2xl ${module.accent.solid} text-base font-extrabold text-white shadow-sm`}>
@@ -953,9 +1002,34 @@ function DttSession({
             <span className="hidden rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-bold text-slate-600 sm:inline">
               VB-MAPP {target.vbMapp.tag}
             </span>
+            {/*
+              显示这一节实际用的难度，而不是配置里的固定台阶。
+              老师刚在列表页把它从 7 调到 5，进来还写 7 就会以为没生效。
+            */}
+            <span
+              data-testid="play-step"
+              data-tuned={playStep !== playBaseStep ? 'true' : 'false'}
+              title={`${
+                liveScene === 'all' ? '全表台阶' : `${settingMeta(liveScene).label}上的难度`
+              } ${playStep}（配置值 ${playBaseStep}，数字越小越容易）`}
+              className={`rounded-full px-2 py-0.5 text-[11px] font-bold ${
+                playStep !== playBaseStep
+                  ? 'bg-amber-100 text-amber-700 ring-1 ring-amber-200'
+                  : 'bg-slate-100 text-slate-600'
+              }`}
+            >
+              {liveScene === 'all' ? '台阶' : `${settingMeta(liveScene).label}难度`} {playStep}
+              {playStep !== playBaseStep && ' · 已调'}
+            </span>
           </div>
           <div className="text-xs text-slate-500">
-            试次 {Math.min(idx + 1, trials.length)}/{trials.length} · 连续独立 {stats.currentStreak} 次 · {by}带练 · {student}
+            <span
+              title={TRIAL_HINT}
+              className="cursor-help underline decoration-dotted decoration-slate-400 underline-offset-2"
+            >
+              试次 {Math.min(idx + 1, trials.length)}/{trials.length}
+            </span>{' '}
+            · 连续独立 {stats.currentStreak} 次 · {by}带练 · {student}
           </div>
         </div>
         {readAloud.supported && (
@@ -1047,7 +1121,29 @@ function DttSession({
               </div>
 
               <div className="flex items-center gap-2" data-testid="task-pool">
-                <span className="rounded-lg bg-slate-100 px-2.5 py-1.5 text-xs font-bold text-slate-600">
+                {liveScene !== 'all' && (
+                  <span
+                    data-testid="play-scene"
+                    className={`flex h-12 items-center gap-1 rounded-lg px-2.5 text-xs font-bold ${
+                      pick.borrowed > 0
+                        ? 'bg-amber-50 text-amber-700 ring-1 ring-amber-200'
+                        : 'bg-slate-100 text-slate-600'
+                    }`}
+                    title={
+                      pick.borrowed > 0
+                        ? `${settingMeta(liveScene).label}只有 ${pick.inScene} 道专属题，为了凑够一节的强度，从别的场景借了 ${pick.borrowed} 道——记录里会写清这一节不完全在${settingMeta(liveScene).label}做的`
+                        : `这一节全部是${settingMeta(liveScene).label}专属题`
+                    }
+                  >
+                    <span aria-hidden>{settingMeta(liveScene).emoji}</span>
+                    {settingMeta(liveScene).label}
+                    {pick.borrowed > 0 && <span className="text-[10px]">借 {pick.borrowed} 道</span>}
+                  </span>
+                )}
+                <span
+                  className="rounded-lg bg-slate-100 px-2.5 py-1.5 text-xs font-bold text-slate-600"
+                  title={`本节题目分布：${sceneMixLine(drawnTasks) || '—'}（按每道题可用的场景计，一题可能算两个场景）`}
+                >
                   本节抽到 {drawnIds.length} 道 / 题库共 {target.tasks.length} 道
                 </span>
                 <button
@@ -1114,7 +1210,10 @@ function DttSession({
           <div className={`rounded-2xl border ${module.accent.softBorder} bg-gradient-to-b from-white to-slate-50/50 p-4 sm:p-5`}>
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div className="flex flex-wrap items-center gap-2">
-                <span className={`rounded-full ${module.accent.soft} px-3 py-1 text-xs font-extrabold ${module.accent.textStrong}`}>
+                <span
+                  title={TRIAL_HINT}
+                  className={`cursor-help rounded-full ${module.accent.soft} px-3 py-1 text-xs font-extrabold ${module.accent.textStrong}`}
+                >
                   第 {Math.min(idx + 1, trials.length)} 试次 · 第 {spec.repeatIndex} 遍
                 </span>
                 {target.modality === 'receptive' && (
@@ -1297,9 +1396,14 @@ function DttSession({
                   type="button"
                   onClick={advance}
                   data-testid="dtt-next"
+                  title={
+                    idx + 1 >= trials.length
+                      ? '这一节练完了，去填三行记录并保存'
+                      : `进入下一个试次：同一道题还有下一遍就继续这道题，没有就换下一道。${TRIAL_HINT}`
+                  }
                   className={`flex h-12 flex-1 items-center justify-center rounded-xl ${module.accent.solid} text-sm font-bold text-white shadow-sm transition hover:opacity-95`}
                 >
-                  {idx + 1 >= trials.length ? '练习结束，去填记录 →' : '下一试次 →'}
+                  {idx + 1 >= trials.length ? '练习结束，去填记录 →' : '下一次试 →'}
                 </button>
               </div>
             </div>
@@ -1398,7 +1502,7 @@ function DttSession({
         disabled={trialStage !== 'await'}
         placeholder={
           trialStage !== 'await'
-            ? '这一试次已记录，可点击上方进入下一试次'
+            ? '这一试已经记录，点上方按钮进下一次试'
             : target.modality === 'receptive'
               ? '可选：记录孩子做了什么动作，或直接点上方判定…'
               : '按住说话，或者打字记下孩子的原话…'
