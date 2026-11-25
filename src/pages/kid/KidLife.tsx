@@ -14,6 +14,7 @@ import { lockLessonArea } from '@/config/lessonGate';
 import { LIFE_MODULE } from '@/config/chainModule';
 import { CHAIN_TARGETS, chainGroups, needsLine, suggestNextChain } from '@/config/chainTargets';
 import { CHAIN_BAND_META, CHAIN_GROUP_META, CHAIN_MODE_META, type ChainTarget } from '@/config/chainTraining';
+import { sessionChainStats } from '@/config/chainRecord';
 import {
   loadBookFrom,
   nextSessionNo,
@@ -41,7 +42,22 @@ const bandStyle: Record<keyof typeof CHAIN_BAND_META, string> = {
   school: 'bg-indigo-50 text-indigo-600',
 };
 
-function ChainCard({ target, recommended }: { target: ChainTarget; recommended: boolean }) {
+/** 这张卡上次练到哪。没有记录就不显示，不写「还没练过」占地方 */
+export interface ChainLastInfo {
+  independent: number;
+  total: number;
+  score: number | null;
+}
+
+function ChainCard({
+  target,
+  recommended,
+  last,
+}: {
+  target: ChainTarget;
+  recommended: boolean;
+  last?: ChainLastInfo;
+}) {
   const stepCount = target.steps.length;
   const mode = CHAIN_MODE_META[target.defaultMode];
 
@@ -78,6 +94,19 @@ function ChainCard({ target, recommended }: { target: ChainTarget; recommended: 
         <span className="rounded-lg bg-slate-100 px-2 py-1 text-slate-600">编号 {target.id}</span>
       </div>
 
+      {last && (
+        <div
+          data-testid={`chain-last-${target.id}`}
+          className="flex items-center gap-1.5 rounded-xl bg-emerald-50 px-2.5 py-1.5 text-[11px] font-bold text-emerald-700"
+        >
+          <span aria-hidden>📈</span>
+          <span>
+            上次独立 {last.independent}/{last.total} 步
+          </span>
+          {last.score !== null && <span className="ml-auto shrink-0 text-emerald-600">{last.score} 分</span>}
+        </div>
+      )}
+
       <div className="flex items-center gap-1.5 border-t border-slate-100 pt-2.5 text-[11px] text-slate-400">
         <span aria-hidden>🧰</span>
         <span className="line-clamp-1">需要 {needsLine(target)}</span>
@@ -108,6 +137,24 @@ export default function KidLife() {
   }, [mine]);
 
   const practicedCount = useMemo(() => new Set(mine.map((s) => s.targetId)).size, [mine]);
+
+  /**
+   * 每张卡上次练到哪。取这条链最近一条带 runs 的记录，**只报最后一遍**——
+   * 全程平均会被前几遍拖低，看不出现在的水平。
+   * 没有记录就不放进 map，卡片上不写「还没练过」占地方。
+   */
+  const lastByTarget = useMemo(() => {
+    const out = new Map<string, ChainLastInfo>();
+    for (const t of CHAIN_TARGETS) {
+      const list = mine.filter((s) => s.targetId === t.id);
+      const last = list[list.length - 1];
+      if (!last?.runs?.length) continue;
+      const st = sessionChainStats(t, last.runs);
+      if (!st.last) continue;
+      out.set(t.id, { independent: st.last.stats.independent, total: st.last.stats.total, score: last.score });
+    }
+    return out;
+  }, [mine]);
   const nextTarget = useMemo(() => suggestNextChain(stableIds), [stableIds]);
   const groups = useMemo(() => chainGroups(), []);
   const masteryPct = CHAIN_TARGETS.length > 0 ? Math.round((stableIds.length / CHAIN_TARGETS.length) * 100) : 0;
@@ -238,7 +285,7 @@ export default function KidLife() {
               <p className="px-1 text-[13px] leading-relaxed text-slate-500">{meta.desc}</p>
               <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
                 {group.targets.map((t) => (
-                  <ChainCard key={t.id} target={t} recommended={nextTarget?.id === t.id} />
+                  <ChainCard key={t.id} target={t} recommended={nextTarget?.id === t.id} last={lastByTarget.get(t.id)} />
                 ))}
               </div>
             </section>

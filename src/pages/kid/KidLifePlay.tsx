@@ -27,8 +27,9 @@ import {
   type ChainStep,
 } from '@/config/chainTraining';
 import { CHAIN_PROMPT_LABELS, CHAIN_PROMPT_ORDER, composeChainThreeLines, sessionChainStats, suggestChainScore, trendLine } from '@/config/chainRecord';
-import { addSessionTo, loadBookFrom, nextSessionNo, todayIso, type ExpressionBook, type Score } from '@/config/kidExpression';
+import { addSessionTo, loadBookFrom, nextSessionNo, todayIso, type ExpressionBook, type ExpressionSession, type Score } from '@/config/kidExpression';
 import type { DttPromptLevel } from '@/config/dtt';
+import { RecordExportSheet } from './components/RecordExportSheet';
 import { useKid } from './KidContext';
 
 type Phase = 'run' | 'runDone' | 'summary';
@@ -73,6 +74,8 @@ export default function KidLifePlay() {
   >([]);
   const [threeLines, setThreeLines] = useState({ did: '', achieved: '', stuck: '' });
   const [score, setScore] = useState<Score | null>(null);
+  /** 保存后弹出的导出单，关闭时才回列表——不然记录进了库却拿不出文件 */
+  const [exporting, setExporting] = useState<ExpressionSession | null>(null);
 
   if (!target) {
     return (
@@ -136,14 +139,14 @@ export default function KidLifePlay() {
 
   const save = () => {
     if (runs.length === 0) return;
-    const session = {
+    const session: ExpressionSession = {
       id: `${target.id}-${Date.now()}`,
       student,
       date: todayIso(),
       sessionNo: nextSessionNo(book, student),
       topic: topicOf(target),
       targetId: target.id,
-      by: '教师' as const,
+      by: '教师',
       rounds: [],
       score,
       threeLines,
@@ -154,7 +157,8 @@ export default function KidLifePlay() {
     };
     const next = addSessionTo(LIFE_MODULE.bookKey, book, session);
     setBook(next);
-    navigate(LIFE_MODULE.basePath);
+    // 先弹导出再回列表：保存只是落库，老师当场就要那份 md 去归档
+    setExporting(session);
   };
 
   const stats = sessionChainStats(target, runs);
@@ -292,6 +296,17 @@ export default function KidLifePlay() {
             </button>
           </div>
         </div>
+
+        {exporting && (
+          <RecordExportSheet
+            session={exporting}
+            accentClass="bg-sky-500"
+            onClose={() => {
+              setExporting(null);
+              navigate(LIFE_MODULE.basePath);
+            }}
+          />
+        )}
       </div>
     );
   }

@@ -321,4 +321,17 @@ assert.match(lifePlay, /suggestChainScore/, '分数要给建议值，但允许�
 assert.match(lifePlay, /runs,/, '保存时要把 runs 一起落盘');
 assert.match(lifePlay, /rounds: \[\]/, '链式课没有「题」，rounds 要显式留空');
 
+
+// 列表卡要显示「上次练到哪」，否则练过的链和没练过的一模一样
+assert.match(lifeList, /chain-last-\$\{target\.id\}/, '卡片要显示上次的独立步数');
+assert.match(lifeList, /sessionChainStats/, '上次进度要按最后一遍算，不能自己拼');
+assert.match(lifeList, /lastByTarget/, '同一条链只取最近一条记录');
+// 没有记录就整行不渲染（last 为 undefined），不要退化成一行占位文字
+assert.match(lifeList, /\{last && \(/, '没有记录就不渲染上次进度那一行');
+assert.match(lifeList, /上次独立 \{last\.independent\}\/\{last\.total\} 步/, '要报出独立几步 / 共几步');
+
+// 保存后要能拿到那份 markdown：只落库不给文件，老师还得绕去家长中心
+assert.match(lifePlay, /RecordExportSheet/, '记录页要能导出');
+assert.match(lifePlay, /setExporting\(session\)/, '保存之后先弹导出，关掉才回列表');
+
 console.log('kidUi.test.mjs: ok');
