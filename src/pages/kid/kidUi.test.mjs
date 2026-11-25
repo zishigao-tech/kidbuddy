@@ -309,6 +309,12 @@ assert.match(home, /data-testid={`\$\{testId\}-direct`}/, '卡片下面要有「
 assert.match(home, /next\.path !== module\.basePath/, '全稳了时直达和点卡片是同一个目的地，不该重复出现');
 assert.match(home, /navigate\(pendingPath \?\? module\.basePath\)/, '验证通过后要走去记住的那个目的地');
 assert.match(home, /const enter = \(path: string\)/, '两条路（点卡片 / 直接练）要共用同一个入口，验证逻辑别写两遍');
+// 区块标题写着「需长按 1.5 秒并验证进入」，直达要是单击就能用，等于自己破规矩
+assert.match(home, /function useGatedTap/, '长按规则要抽成一份，卡片和直达共用');
+assert.match(home, /toDirect\.onPointerDown/, '直达按钮也要走长按，不能单击就弹验证');
+assert.match(home, /toDirect\.onClick/);
+assert.match(home, /toCard\.onPointerDown/, '卡片本身也走同一份');
+assert.match(home, /useLongPress\(/, '仍然是 1.5 秒长按，不是换了别的门');
 
 // 首页和列表页必须同一份答案：列表页的 stableIds 从 nextUp 取，不许自己再算一遍
 assert.match(lifeList, /chainStableIds\(mine\)/, '列表页的「稳了」要复用 nextUp 的口径');
