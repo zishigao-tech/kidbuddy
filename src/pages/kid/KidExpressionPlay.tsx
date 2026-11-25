@@ -189,6 +189,13 @@ interface TrialSpec {
   repeatIndex: number;
 }
 
+/**
+ * 「试次」是 DTT 的标准术语（trial），做 ABA 的老师认这个词，但家长不一定。
+ * 不从文案里删掉它——「次」在这个页面里已经指别的东西了，改成「次」会和
+ * 「第 1 遍」「已练 3 次」撞车。所以保留术语，在所有计数的地方挂同一句解释。
+ */
+const TRIAL_HINT = '试次 = 一道题的一次完整回合。一节课抽 4 道题，每道练 2 遍，就是 8 个试次。';
+
 function newId(prefix: string): string {
   return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
 }
@@ -737,7 +744,12 @@ function DttSession({
                 return (
                   <div key={r.taskId} className="rounded-2xl border-2 border-slate-100 p-3.5">
                     <div className="flex flex-wrap items-start gap-2">
-                      <span className="rounded-lg bg-slate-100 px-2 py-0.5 text-xs font-bold text-slate-600">第 {i + 1} 试次</span>
+                      <span
+                        title={`第 ${i + 1} 个试次：${TRIAL_HINT}`}
+                        className="cursor-help rounded-lg bg-slate-100 px-2 py-0.5 text-xs font-bold text-slate-600"
+                      >
+                        第 {i + 1} 试次
+                      </span>
                       <span className={`rounded-full px-2 py-0.5 text-xs font-bold ${mark.tone}`}>{mark.text}</span>
                       <span className="min-w-0 flex-1 text-sm font-bold text-slate-700">{r.ask}</span>
                     </div>
@@ -907,7 +919,12 @@ function DttSession({
           </div>
 
           <div className="flex flex-wrap gap-2 pb-4">
-            <button type="button" onClick={() => setPhase('run')} className="h-14 flex-1 rounded-2xl bg-white text-base font-bold text-slate-600 shadow-sm">
+            <button
+              type="button"
+              onClick={() => setPhase('run')}
+              title={`回去继续练，不保存这一节。${TRIAL_HINT}`}
+              className="h-14 flex-1 rounded-2xl bg-white text-base font-bold text-slate-600 shadow-sm"
+            >
               回去再练几个试次
             </button>
             <button type="button" onClick={save} data-testid="save-session" className={`h-14 flex-[2] rounded-2xl ${module.accent.solid} text-base font-extrabold text-white shadow-sm`}>
@@ -1006,7 +1023,13 @@ function DttSession({
             </span>
           </div>
           <div className="text-xs text-slate-500">
-            试次 {Math.min(idx + 1, trials.length)}/{trials.length} · 连续独立 {stats.currentStreak} 次 · {by}带练 · {student}
+            <span
+              title={TRIAL_HINT}
+              className="cursor-help underline decoration-dotted decoration-slate-400 underline-offset-2"
+            >
+              试次 {Math.min(idx + 1, trials.length)}/{trials.length}
+            </span>{' '}
+            · 连续独立 {stats.currentStreak} 次 · {by}带练 · {student}
           </div>
         </div>
         {readAloud.supported && (
@@ -1187,7 +1210,10 @@ function DttSession({
           <div className={`rounded-2xl border ${module.accent.softBorder} bg-gradient-to-b from-white to-slate-50/50 p-4 sm:p-5`}>
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div className="flex flex-wrap items-center gap-2">
-                <span className={`rounded-full ${module.accent.soft} px-3 py-1 text-xs font-extrabold ${module.accent.textStrong}`}>
+                <span
+                  title={TRIAL_HINT}
+                  className={`cursor-help rounded-full ${module.accent.soft} px-3 py-1 text-xs font-extrabold ${module.accent.textStrong}`}
+                >
                   第 {Math.min(idx + 1, trials.length)} 试次 · 第 {spec.repeatIndex} 遍
                 </span>
                 {target.modality === 'receptive' && (
@@ -1370,9 +1396,14 @@ function DttSession({
                   type="button"
                   onClick={advance}
                   data-testid="dtt-next"
+                  title={
+                    idx + 1 >= trials.length
+                      ? '这一节练完了，去填三行记录并保存'
+                      : `进入下一个试次：同一道题还有下一遍就继续这道题，没有就换下一道。${TRIAL_HINT}`
+                  }
                   className={`flex h-12 flex-1 items-center justify-center rounded-xl ${module.accent.solid} text-sm font-bold text-white shadow-sm transition hover:opacity-95`}
                 >
-                  {idx + 1 >= trials.length ? '练习结束，去填记录 →' : '下一试次 →'}
+                  {idx + 1 >= trials.length ? '练习结束，去填记录 →' : '下一次试 →'}
                 </button>
               </div>
             </div>
@@ -1471,7 +1502,7 @@ function DttSession({
         disabled={trialStage !== 'await'}
         placeholder={
           trialStage !== 'await'
-            ? '这一试次已记录，可点击上方进入下一试次'
+            ? '这一试已经记录，点上方按钮进下一次试'
             : target.modality === 'receptive'
               ? '可选：记录孩子做了什么动作，或直接点上方判定…'
               : '按住说话，或者打字记下孩子的原话…'
