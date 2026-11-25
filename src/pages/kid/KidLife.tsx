@@ -13,6 +13,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { lockLessonArea } from '@/config/lessonGate';
 import { LIFE_MODULE } from '@/config/chainModule';
 import { CHAIN_TARGETS, chainGroups, needsLine, suggestNextChain } from '@/config/chainTargets';
+import { chainStableIds, lastBandOf } from '@/config/nextUp';
 import { CHAIN_BAND_META, CHAIN_GROUP_META, CHAIN_MODE_META, type ChainTarget } from '@/config/chainTraining';
 import { sessionChainStats } from '@/config/chainRecord';
 import {
@@ -20,7 +21,6 @@ import {
   nextSessionNo,
   sessionsOf,
   type ExpressionBook,
-  type ExpressionSession,
 } from '@/config/kidExpression';
 import { useKid } from './KidContext';
 
@@ -125,16 +125,9 @@ export default function KidLife() {
 
   /**
    * 某条链「稳了」= 它最近一节课拿了 2 分。
-   * 不要求连续两次（那是语言表达的稳定口径）——链式课一次课就练 2–3 遍，
-   * 同一个目标再要求两次课，节奏太慢，家长会以为没在推进。
+   * 口径来自 nextUp.ts，和首页那张卡共用一份——首页指向 A6、列表却指着 A1 会被当成 bug。
    */
-  const stableIds = useMemo(() => {
-    const latest = new Map<string, ExpressionSession>();
-    for (const s of mine) latest.set(s.targetId, s); // mine 已按日期升序，后面的覆盖前面的
-    return Array.from(latest.entries())
-      .filter(([, s]) => s.score === 2)
-      .map(([id]) => id);
-  }, [mine]);
+  const stableIds = useMemo(() => chainStableIds(mine), [mine]);
 
   const practicedCount = useMemo(() => new Set(mine.map((s) => s.targetId)).size, [mine]);
 
@@ -155,7 +148,7 @@ export default function KidLife() {
     }
     return out;
   }, [mine]);
-  const nextTarget = useMemo(() => suggestNextChain(stableIds), [stableIds]);
+  const nextTarget = useMemo(() => suggestNextChain(stableIds, lastBandOf(mine)), [stableIds, mine]);
   const groups = useMemo(() => chainGroups(), []);
   const masteryPct = CHAIN_TARGETS.length > 0 ? Math.round((stableIds.length / CHAIN_TARGETS.length) * 100) : 0;
 

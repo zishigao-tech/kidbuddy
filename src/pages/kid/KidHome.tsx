@@ -1,9 +1,10 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { unlockParentArea } from '@/config/parentGate';
 import { isLessonAreaUnlocked, lessonUnlockLeftMinutes, unlockLessonArea } from '@/config/lessonGate';
 import { COGNITION_MODULE, EXPRESSION_MODULE } from '@/config/lessonModules';
 import { LIFE_MODULE, type LessonCardModule } from '@/config/chainModule';
+import { chainNextUp, dttNextUp, type NextUp } from '@/config/nextUp';
 import { useKid } from './KidContext';
 import { CompanionAvatar } from './components/ChatBubble';
 import { LongPressRing, ParentGateDialog, useLongPress } from './components/ParentGate';
@@ -17,10 +18,13 @@ function GatedLessonCard({
   module,
   gradient,
   testId,
+  next,
 }: {
   module: LessonCardModule;
   gradient: string;
   testId: string;
+  /** 下次练什么。没账本或全稳了给 null / 全稳提示，这一行就不渲染 */
+  next?: NextUp | null;
 }) {
   const navigate = useNavigate();
   const unlocked = isLessonAreaUnlocked();
@@ -105,25 +109,35 @@ function GatedLessonCard({
               {unlocked ? `🔓 已解锁 · 剩 ${left} 分` : '🔒 长按 1.5 秒'}
             </span>
           </div>
-          <div
-            className={`mt-0.5 truncate text-sm ${
-              press.pressing
-                ? unlocked
-                  ? 'font-bold text-white'
-                  : `font-bold ${module.accent.text}`
-                : tapHint
-                  ? 'font-bold text-amber-600'
-                  : unlocked
-                    ? 'text-white/90'
-                    : 'text-slate-500'
-            }`}
-          >
-            {press.pressing
-              ? '别松手，马上进入验证…'
-              : tapHint
-                ? '为防孩子误触，请长按 1.5 秒进入验证'
-                : module.tagline}
-          </div>
+          {/**
+           * 第二行三选一：长按/误触的临时提示 > 下次练什么 > 模块介绍。
+           * 练过之后「下次练什么」比宣传语有用，所以让它顶掉那行，
+           * 不再多占一行——三列卡本来就只有 250px 宽，叠四行会挤到看不清。
+           */}
+          {press.pressing || tapHint ? (
+            <div
+              className={`mt-0.5 truncate text-sm font-bold ${
+                press.pressing ? (unlocked ? 'text-white' : module.accent.text) : 'text-amber-600'
+              }`}
+            >
+              {press.pressing ? '别松手，马上进入验证…' : '为防孩子误触，请长按 1.5 秒进入验证'}
+            </div>
+          ) : next ? (
+            <div
+              data-testid={`${testId}-next`}
+              className={`mt-1 flex items-center gap-1.5 text-xs font-bold ${unlocked ? 'text-white' : 'text-slate-600'}`}
+            >
+              <span aria-hidden>🎯</span>
+              <span className="truncate">下次练 {next.label}</span>
+              <span className={`ml-auto shrink-0 text-[11px] font-semibold ${unlocked ? 'text-white/70' : 'text-slate-400'}`}>
+                {next.meta}
+              </span>
+            </div>
+          ) : (
+            <div className={`mt-0.5 truncate text-sm ${unlocked ? 'text-white/90' : 'text-slate-500'}`}>
+              {module.tagline}
+            </div>
+          )}
         </div>
         <span className={`text-xl font-extrabold ${unlocked ? 'text-white' : 'text-slate-300'}`} aria-hidden>
           →
@@ -152,6 +166,22 @@ export default function KidHome() {
   const { companions, companionsLoading, memory, aiConfigured, aiConfigChecked } = useKid();
   const [gateOpen, setGateOpen] = useState(false);
   const name = memory.nickname || '小朋友';
+
+  /**
+   * 三张卡各自的「下次练什么」。算一次就够：从别的页面回来时 KidHome 会重新挂载。
+   * 账本读失败时返回 null，卡片上那一行直接不渲染。
+   */
+  const nextUps = useMemo(() => {
+    try {
+      return {
+        expression: dttNextUp(EXPRESSION_MODULE, name),
+        cognition: dttNextUp(COGNITION_MODULE, name),
+        life: chainNextUp(name),
+      };
+    } catch {
+      return { expression: null, cognition: null, life: null };
+    }
+  }, [name]);
 
   return (
     <div className="flex-1 overflow-y-auto px-5 pb-[max(32px,env(safe-area-inset-bottom))] pt-2">
@@ -281,9 +311,19 @@ export default function KidHome() {
           </span>
         </div>
         <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
-          <GatedLessonCard module={EXPRESSION_MODULE} gradient="from-rose-400 to-orange-400" testId="expression-card" />
-          <GatedLessonCard module={COGNITION_MODULE} gradient="from-indigo-400 to-violet-500" testId="cognition-card" />
-          <GatedLessonCard module={LIFE_MODULE} gradient="from-sky-400 to-teal-400" testId="life-card" />
+          <GatedLessonCard
+            module={EXPRESSION_MODULE}
+            gradient="from-rose-400 to-orange-400"
+            testId="expression-card"
+            next={nextUps.expression}
+          />
+          <GatedLessonCard
+            module={COGNITION_MODULE}
+            gradient="from-indigo-400 to-violet-500"
+            testId="cognition-card"
+            next={nextUps.cognition}
+          />
+          <GatedLessonCard module={LIFE_MODULE} gradient="from-sky-400 to-teal-400" testId="life-card" next={nextUps.life} />
         </div>
       </section>
 

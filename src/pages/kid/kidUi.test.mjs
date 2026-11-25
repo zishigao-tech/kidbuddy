@@ -289,6 +289,19 @@ assert.match(lifeList, /chainGroups\(\)/, '分区顺序由 chainGroups 给，不
 assert.match(lifeList, /CHAIN_MODE_META\[target\.defaultMode\]/, '卡片要显示默认排法');
 assert.match(lifeList, /target\.steps\.length/, '卡片要显示步数');
 assert.match(lifeList, /needsLine\(target\)/, '卡片要显示要准备什么');
+
+// 首页卡片直接告诉老师今晚练哪条，不用点进去才知道
+assert.match(home, /data-testid={`\$\{testId\}-next`}/, '三张卡都要有「下次练」那一行');
+assert.match(home, /chainNextUp\(name\)/, '生活技能的下次目标要按链的口径算');
+assert.match(home, /dttNextUp\(EXPRESSION_MODULE/, '语言表达也要给下次目标');
+assert.match(home, /dttNextUp\(COGNITION_MODULE/, '认知理解也要给下次目标');
+assert.match(home, /next=\{nextUps\.(expression|cognition|life)\}/, '算出来的目标要真的传进卡片');
+// 三列卡只有 250px 宽：练过之后用「下次练」顶掉宣传语，不能叠成第四行
+assert.match(home, /\) : next \? \(/, '「下次练」要顶掉介绍那行，不是再占一行');
+assert.match(home, /\{module\.tagline\}/, '还没有记录时仍要显示模块介绍');
+
+// 首页和列表页必须同一份答案：列表页的 stableIds 从 nextUp 取，不许自己再算一遍
+assert.match(lifeList, /chainStableIds\(mine\)/, '列表页的「稳了」要复用 nextUp 的口径');
 assert.match(lifeList, /suggestNextChain/, '要推荐下一个练什么');
 
 // 练习台：四个辅助等级 + 「没做到」，一个都不能少

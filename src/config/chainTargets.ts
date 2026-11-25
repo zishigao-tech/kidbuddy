@@ -35,6 +35,7 @@
  */
 
 import type { ChainMode, ChainGroup, ChainTarget } from './chainTraining';
+import type { ExpressionBand } from './expressionTargets';
 
 // ---------------------------------------------------------------------------
 // A 组 · 生活技能 · 0-3 岁
@@ -1105,12 +1106,21 @@ export function getChainTarget(id: string | undefined): ChainTarget | undefined 
   return CHAIN_TARGETS.find((t) => t.id === id);
 }
 
-/** 挑下一个目标：按难度顺序取第一个还没稳的。跨段也照这个顺序，因为难度就是全表连续的 */
-export function suggestNextChain(stableIds: string[]): ChainTarget | undefined {
+/**
+ * 挑下一个目标：按难度顺序取第一个还没稳的。
+ *
+ * 传了 `lastBand`（最近一次练的那条链属于哪一段）就先在**同段**里挑。
+ * 老师跨段取用是正常做法，但 3-6 岁练完洗手，再被建议回 0-3 岁去练用杯喝水，
+ * 这条建议就没用了——「下次练」要能接着练，不是从头再来。
+ * 同段都稳了才回到全表按难度挑，保证一直练下去总有个下一步。
+ */
+export function suggestNextChain(stableIds: string[], lastBand?: ExpressionBand): ChainTarget | undefined {
   const stable = new Set(stableIds);
   const pending = CHAIN_TARGETS.filter((t) => !stable.has(t.id));
   if (pending.length === 0) return undefined;
-  return pending.reduce((a, b) => (a.difficulty <= b.difficulty ? a : b));
+  const sameBand = lastBand ? pending.filter((t) => t.band === lastBand) : [];
+  const pool = sameBand.length > 0 ? sameBand : pending;
+  return pool.reduce((a, b) => (a.difficulty <= b.difficulty ? a : b));
 }
 
 /** 列表页顶部的两段式分区（生活技能 / 解决问题），段内按难度升序 */

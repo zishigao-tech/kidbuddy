@@ -375,6 +375,19 @@ assert.equal(suggestNextChain([])?.difficulty, 1, '什么都没稳时推荐最�
 assert.equal(suggestNextChain(CHAIN_TARGETS.map((t) => t.id)), undefined, '全稳了不该再推荐');
 assert.ok(needsLine(CHAIN_TARGETS[0]).length > 0);
 
+// 给了段位就优先在同段里往下走：练完 3-6 岁的洗手，别把人指回 0-3 岁
+assert.equal(suggestNextChain(['A5'], 'preschool')?.band, 'preschool', '同段还有没稳的，就不该跨段');
+assert.ok(
+  suggestNextChain(['A5'], 'preschool').difficulty > getChainTarget('A5').difficulty,
+  '同段要接着往上走，不能倒回去',
+);
+// 同段都稳了才回到全表，保证总有下一步
+const preschoolIds = CHAIN_TARGETS.filter((t) => t.band === 'preschool').map((t) => t.id);
+assert.ok(suggestNextChain(preschoolIds, 'preschool'), '同段练完了还得给出下一步');
+assert.notEqual(suggestNextChain(preschoolIds, 'preschool').band, 'preschool', '同段没得推了才跨段');
+// 不给段位就退回全表按难度 —— 首页第一次进来时还没有任何记录
+assert.equal(suggestNextChain(['A5'])?.difficulty, 1, '没段位信息时按全表难度挑');
+
 // 按年龄段切片：顺序必须是 infant → preschool → school，空段不返回
 const byBand = targetsByBand();
 assert.deepEqual(byBand.map((g) => g.band), BANDS, '分段顺序必须由易到难');
