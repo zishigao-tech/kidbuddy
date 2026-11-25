@@ -1,13 +1,20 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { lockLessonArea } from '@/config/lessonGate';
 import {
   MODALITY_LABEL,
+  SETTINGS,
+  fitsScene,
+  isPrimaryScene,
+  isSettingId,
   isStageBand,
+  sceneDifficulty,
+  settingMeta,
   tierOf,
   type ExpressionBand,
   type ExpressionTier,
   type ExpressionTarget,
+  type SettingId,
 } from '@/config/expressionTargets';
 import {
   SCORE_LABEL,
@@ -29,6 +36,7 @@ import { useKid } from './KidContext';
 const studentKey = (scope: string) => `${scope}.student`;
 const subjectKey = (scope: string) => `${scope}.by`;
 const stageKey = (scope: string) => `${scope}.stage`;
+const sceneKey = (scope: string) => `${scope}.scene`;
 
 function readStudent(scope: string, fallback: string): string {
   try {
@@ -52,6 +60,15 @@ function readSubject(scope: string): ExpressionSubject {
     return localStorage.getItem(subjectKey(scope)) === '家长' ? '家长' : '教师';
   } catch {
     return '教师';
+  }
+}
+
+function readScene(scope: string): SettingId | 'all' {
+  try {
+    const raw = localStorage.getItem(sceneKey(scope));
+    return isSettingId(raw) ? raw : 'all';
+  } catch {
+    return 'all';
   }
 }
 
@@ -93,6 +110,7 @@ function TargetCard({
   basePath,
   total,
   accent,
+  sceneHint,
 }: {
   target: ExpressionTarget;
   recommended: boolean;
@@ -101,6 +119,7 @@ function TargetCard({
   basePath: string;
   total: number;
   accent: LessonModule['accent'];
+  sceneHint?: string;
 }) {
   const stat = targetStat(book, student, target.id);
   const tier = tierOf(target.difficulty);
@@ -154,6 +173,15 @@ function TargetCard({
             {MODALITY_LABEL[target.modality]}
           </span>
           <span className={`rounded-full px-2 py-0.5 text-xs font-bold ${tierStyle[tier]}`}>{tier}</span>
+          {sceneHint && (
+            <span
+              data-testid={`scene-tag-${target.id}`}
+              className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-bold text-slate-500"
+              title={target.settings.map((id) => settingMeta(id).label).join(' / ')}
+            >
+              {sceneHint}
+            </span>
+          )}
           <span
             data-testid={`expression-vbmapp-${target.id}`}
             className="rounded-full bg-violet-50 px-2 py-0.5 text-xs font-bold text-violet-700"
@@ -200,6 +228,8 @@ export function LessonTargetsPage({ module }: { module: LessonModule }) {
   const [subject, setSubject] = useState<ExpressionSubject>(() => readSubject(scope));
   const [exporting, setExporting] = useState<ExpressionSession | null>(null);
   const [stage, setStage] = useState<ExpressionBand | 'all'>(() => readStage(scope));
+  const [scene, setScene] = useState<SettingId | 'all'>(() => readScene(scope));
+  const [showExtra, setShowExtra] = useState(false);
 
   const mine = sessionsOf(book, student);
   const stableIds = module.targets
@@ -211,10 +241,38 @@ export function LessonTargetsPage({ module }: { module: LessonModule }) {
   const groups = module.stageGroups(stage);
   const masteryPct = module.targets.length > 0 ? Math.round((stableCount / module.targets.length) * 100) : 0;
 
+  /**
+   * 选了某个训练场景时，列表换成「主场 + 也能在这里练」两段。
+   * 一个目标可以挂在多个场景下，全都平铺会让「桌面」一栏装进 21/23 个目标，
+   * 筛选就白做了，所以备选的折叠起来。
+   */
+  const sceneView = useMemo(() => {
+    if (scene === 'all') return null;
+    const inScene = module.targets
+      .filter((t) => fitsScene(t, scene))
+      .filter((t) => stage === 'all' || t.band === stage);
+    const byScene = (a: ExpressionTarget, b: ExpressionTarget) =>
+      sceneDifficulty(a, scene) - sceneDifficulty(b, scene) || a.difficulty - b.difficulty;
+    return {
+      primary: inScene.filter((t) => isPrimaryScene(t, scene)).sort(byScene),
+      extra: inScene.filter((t) => !isPrimaryScene(t, scene)).sort(byScene),
+    };
+  }, [module.targets, scene, stage]);
+
   const changeStage = (value: ExpressionBand | 'all') => {
     setStage(value);
     try {
       localStorage.setItem(stageKey(scope), value);
+    } catch {
+      /* 忽略 */
+    }
+  };
+
+  const changeScene = (value: SettingId | 'all') => {
+    setScene(value);
+    setShowExtra(false);
+    try {
+      localStorage.setItem(sceneKey(scope), value);
     } catch {
       /* 忽略 */
     }
@@ -365,14 +423,43 @@ export function LessonTargetsPage({ module }: { module: LessonModule }) {
           </div>
         )}
 
-        {/* 目标列表与学段筛选 */}
+        {/* 目标列表：训练场景 + 学段，两层筛选 */}
         <div>
           <div className="mb-3 flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
             <h2 className="text-xl font-extrabold text-slate-800">全部训练目标</h2>
             <span className="text-xs font-bold text-slate-400">
-              按学段（B → G → K）由易到难，圆圈数字为全表台阶
+              {sceneView
+                ? '按本场景难度由易到难，圆圈数字仍是全表台阶'
+                : '按学段（B → G → K）由易到难，圆圈数字为全表台阶'}
             </span>
           </div>
+
+          {/* 先选「在哪练」：老师和家长共用这一套场景标签 */}
+          <div className="mb-2 flex flex-wrap gap-2" data-testid="expression-scene-filter">
+            {[
+              { key: 'all' as const, label: '🗂️ 全部场景' },
+              ...SETTINGS.map((s) => ({ key: s.id, label: `${s.emoji} ${s.label}` })),
+            ].map((option) => {
+              const active = scene === option.key;
+              return (
+                <button
+                  key={option.key}
+                  type="button"
+                  data-testid={`scene-filter-${option.key}`}
+                  aria-pressed={active}
+                  onClick={() => changeScene(option.key)}
+                  className={`h-12 rounded-full px-4 text-sm font-bold transition ${
+                    active ? `${module.accent.solid} text-white shadow-sm` : 'bg-white text-slate-600 shadow-sm hover:bg-slate-50'
+                  }`}
+                >
+                  {option.label}
+                </button>
+              );
+            })}
+          </div>
+          {scene !== 'all' && (
+            <p className="mb-3 text-xs font-bold text-slate-400">{settingMeta(scene).hint}</p>
+          )}
 
           <div className="mb-4 flex flex-wrap gap-2" data-testid="expression-stage-filter">
             {[
@@ -397,35 +484,116 @@ export function LessonTargetsPage({ module }: { module: LessonModule }) {
             })}
           </div>
 
-          <div className="space-y-6">
-            {groups.map((group) => (
-              <div key={group.stage.band} data-testid={`stage-group-${group.stage.band}`}>
+          {sceneView && scene !== 'all' ? (
+            <div className="space-y-6">
+              <section data-testid="scene-primary">
                 <div className="mb-2.5 flex flex-wrap items-center gap-2">
                   <span className={`rounded-lg ${module.accent.icon} px-2.5 py-0.5 text-xs font-extrabold ${module.accent.textStrong}`}>
-                    {group.stage.code} 段
+                    主场
                   </span>
                   <h3 className="text-sm font-extrabold text-slate-700">
-                    {group.stage.ageLabel} · {group.stage.domainLabel}
+                    {settingMeta(scene).emoji} {settingMeta(scene).label}上练的目标
                   </h3>
-                  <span className="text-xs font-bold text-slate-400">共 {group.targets.length} 个目标</span>
+                  <span className="text-xs font-bold text-slate-400">共 {sceneView.primary.length} 个</span>
                 </div>
-                <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-                  {group.targets.map((t) => (
-                    <TargetCard
-                      key={t.id}
-                      target={t}
-                      recommended={nextTarget?.id === t.id}
-                      book={book}
-                      student={student}
-                      basePath={module.basePath}
-                      total={module.targets.length}
-                      accent={module.accent}
-                    />
-                  ))}
+                {sceneView.primary.length === 0 ? (
+                  <p className="rounded-2xl bg-white p-5 text-center text-sm text-slate-400">
+                    这个场景 + 这个学段没有主场目标，换一个学段看看。
+                  </p>
+                ) : (
+                  <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                    {sceneView.primary.map((t) => (
+                      <TargetCard
+                        key={t.id}
+                        target={t}
+                        recommended={nextTarget?.id === t.id}
+                        book={book}
+                        student={student}
+                        basePath={module.basePath}
+                        total={module.targets.length}
+                        accent={module.accent}
+                        sceneHint={
+                          sceneDifficulty(t, scene) === t.difficulty
+                            ? undefined
+                            : `本场景难度 ${sceneDifficulty(t, scene)}`
+                        }
+                      />
+                    ))}
+                  </div>
+                )}
+              </section>
+
+              {sceneView.extra.length > 0 && (
+                <section data-testid="scene-extra">
+                  <button
+                    type="button"
+                    data-testid="scene-extra-toggle"
+                    aria-expanded={showExtra}
+                    onClick={() => setShowExtra((v) => !v)}
+                    className="flex h-12 w-full items-center justify-between gap-3 rounded-2xl border-2 border-dashed border-slate-200 bg-white px-4 text-sm font-bold text-slate-600 transition hover:border-slate-300"
+                  >
+                    <span>
+                      也能在这里练 · {sceneView.extra.length} 个目标
+                      <span className="ml-2 font-normal text-slate-400">主场在别处，但{settingMeta(scene).label}也做得动</span>
+                    </span>
+                    <span aria-hidden className="text-slate-400">{showExtra ? '收起 ▲' : '展开 ▼'}</span>
+                  </button>
+                  {showExtra && (
+                    <div className="mt-3 grid grid-cols-1 gap-4 md:grid-cols-2">
+                      {sceneView.extra.map((t) => (
+                        <TargetCard
+                          key={t.id}
+                          target={t}
+                          recommended={nextTarget?.id === t.id}
+                          book={book}
+                          student={student}
+                          basePath={module.basePath}
+                          total={module.targets.length}
+                          accent={module.accent}
+                          sceneHint={`主场在 ${settingMeta(t.settings[0]).label}${
+                            sceneDifficulty(t, scene) === t.difficulty
+                              ? ''
+                              : ` · 难度 ${sceneDifficulty(t, scene)}`
+                          }`}
+                        />
+                      ))}
+                    </div>
+                  )}
+                </section>
+              )}
+            </div>
+          ) : (
+            <div className="space-y-6">
+              {groups.map((group) => (
+                <div key={group.stage.band} data-testid={`stage-group-${group.stage.band}`}>
+                  <div className="mb-2.5 flex flex-wrap items-center gap-2">
+                    <span className={`rounded-lg ${module.accent.icon} px-2.5 py-0.5 text-xs font-extrabold ${module.accent.textStrong}`}>
+                      {group.stage.code} 段
+                    </span>
+                    <h3 className="text-sm font-extrabold text-slate-700">
+                      {group.stage.ageLabel} · {group.stage.domainLabel}
+                    </h3>
+                    <span className="text-xs font-bold text-slate-400">共 {group.targets.length} 个目标</span>
+                  </div>
+                  <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                    {group.targets.map((t) => (
+                      <TargetCard
+                        key={t.id}
+                        target={t}
+                        recommended={nextTarget?.id === t.id}
+                        book={book}
+                        student={student}
+                        basePath={module.basePath}
+                        total={module.targets.length}
+                        accent={module.accent}
+                        sceneHint={`主场 ${settingMeta(t.settings[0]).emoji}${settingMeta(t.settings[0]).label}`}
+                      />
+                    ))}
+                  </div>
                 </div>
-              </div>
-            ))}
-          </div>
+              ))}
+            </div>
+          )}
         </div>
 
         {/* 课时账本 */}

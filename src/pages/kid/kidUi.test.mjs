@@ -192,4 +192,24 @@ assert.match(puzzleConfig, /PRESCHOOL_MAX_PIECES/, '小龄要限制块数');
 assert.match(puzzleConfig, /backgroundColor|pieceBackground/, '切块靠 background-position');
 assert.doesNotMatch(puzzleConfig, /from '.*\.(png|jpg|webp)'/, '画面必须是本地 SVG，不引外部图片');
 
+// 训练场景：先选「在哪练」，再按难度排。老师和家长共用一套标签
+assert.match(exprHome, /data-testid="expression-scene-filter"/, '要有场景筛选');
+assert.match(exprHome, /scene-filter-\$\{option\.key\}/, '场景 chip 要可点');
+assert.match(exprHome, /SETTINGS\.map/, '场景列表来自统一配置，不许页面里硬编码');
+assert.match(exprHome, /\$\{scope\}\.scene/, '场景选择要记住（键挂在模块前缀下）');
+assert.match(exprHome, /sceneDifficulty\(/, '场景内要按场景难度排序');
+assert.match(exprHome, /isPrimaryScene\(/, '要区分主场和备选');
+assert.match(exprHome, /data-testid="scene-primary"/, '主场目标单独一段');
+assert.match(exprHome, /data-testid="scene-extra"/, '备选目标单独一段');
+assert.match(exprHome, /data-testid="scene-extra-toggle"/, '备选段要能折叠，否则「桌面」一栏装 21/23 个目标');
+assert.match(exprHome, /scene-tag-/, '卡片上要标明主场在哪个场景 / 本场景难度');
+assert.match(exprHome, /showExtra/, '折叠要有状态');
+// 场景筛选不能把台阶编号也重排（老坑：按场景重编会出现「4 比 6 难」的错觉）
+assert.match(exprHome, /\{target\.difficulty\}/, '圆圈数字仍用全表台阶');
+// 场景字段本身
+const targetCfg = await read('../../config/expressionTargets.ts');
+assert.match(targetCfg, /export type SettingId = 'desk' \| 'floor' \| 'home' \| 'outdoor'/);
+assert.match(targetCfg, /export const SETTINGS: SettingMeta\[\]/);
+assert.match(targetCfg, /export function sceneDifficulty/);
+
 console.log('kidUi.test.mjs: ok');

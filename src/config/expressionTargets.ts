@@ -212,6 +212,35 @@ export interface VbMappRef {
   tag: string;
 }
 
+/**
+ * 训练场景：同一个目标可以在多个场景下练。
+ * 老师和家长共用这一套标签，不给两端各维护一份。
+ */
+export type SettingId = 'desk' | 'floor' | 'home' | 'outdoor';
+
+export interface SettingMeta {
+  id: SettingId;
+  label: string;
+  emoji: string;
+  /** 一句话判断口诀，给家长看 */
+  hint: string;
+}
+
+export const SETTINGS: SettingMeta[] = [
+  { id: 'desk', label: '桌面', emoji: '🪑', hint: '能坐下来慢慢教的，先放桌面' },
+  { id: 'floor', label: '地面', emoji: '🧸', hint: '要动起来、要钻要爬的，放地面' },
+  { id: 'home', label: '居家', emoji: '🏠', hint: '能在生活里顺手做的，放居家' },
+  { id: 'outdoor', label: '户外', emoji: '🌳', hint: '要检验「换个地方还会不会」的，放户外' },
+];
+
+export function isSettingId(value: unknown): value is SettingId {
+  return SETTINGS.some((s) => s.id === value);
+}
+
+export function settingMeta(id: SettingId): SettingMeta {
+  return SETTINGS.find((s) => s.id === id) ?? SETTINGS[0];
+}
+
 export interface ExpressionTarget {
   id: string;
   name: string;
@@ -222,6 +251,17 @@ export interface ExpressionTarget {
    * 语用 → 问答 → 叙述 → 复述 → 转述）。
    */
   difficulty: number;
+  /**
+   * 这个目标能在哪些训练场景下练，首元素 = 主场景（列表标签和默认排序用它）。
+   * 一个目标可以出现在多个场景下——比如「C6 功能理解」主场景是居家，桌面上也能做。
+   */
+  settings: SettingId[];
+  /**
+   * 某个场景下的难度覆盖，没写的场景沿用 difficulty。
+   * 口径和台阶一致：越小越容易。同一目标在不同场景难度可以差很多
+   * （方位理解在地面比在桌面容易），所以列表按场景筛选后要按这个排。
+   */
+  settingDifficulty?: Partial<Record<SettingId, number>>;
   /** 听 / 说：听者反应类目标只看动作对不对，不要求开口 */
   modality: ExpressionModality;
   /** 五领域归类，用于统计；认知理解模块也复用这个结构 */
@@ -243,6 +283,21 @@ export interface ExpressionTarget {
   familyGuide: ExpressionFamilyGuide;
 }
 
+/** 目标在某个场景下的难度：有覆盖用覆盖，没覆盖就退回全表台阶 */
+export function sceneDifficulty(target: ExpressionTarget, scene: SettingId): number {
+  return target.settingDifficulty?.[scene] ?? target.difficulty;
+}
+
+/** 目标能不能在这个场景下练 */
+export function fitsScene(target: ExpressionTarget, scene: SettingId): boolean {
+  return target.settings.includes(scene);
+}
+
+/** 是不是这个场景的主场（主场排在前面，备选的折叠在下面） */
+export function isPrimaryScene(target: ExpressionTarget, scene: SettingId): boolean {
+  return target.settings[0] === scene;
+}
+
 /**
  * 3 秒等待窗，和 DTT 的 DTT_WAIT_MS 保持一致。
  * ASD 孩子等待耐受更短，5 秒容易变成「走神」而不是「思考」。
@@ -256,6 +311,8 @@ export const EXPRESSION_TARGETS: ExpressionTarget[] = [
     name: '开口要东西',
     band: 'infant',
     difficulty: 1,
+    settings: ['home', 'desk', 'outdoor'],
+    settingDifficulty: { desk: 2, home: 1, outdoor: 4 },
     modality: 'expressive',
     domain: '语言沟通',
     summary: '想要的东西在眼前，用词说出来，不用伸手、不用哭',
@@ -364,6 +421,8 @@ export const EXPRESSION_TARGETS: ExpressionTarget[] = [
     name: '看见就说',
     band: 'preschool',
     difficulty: 2,
+    settings: ['home', 'desk', 'outdoor'],
+    settingDifficulty: { desk: 2, home: 1, outdoor: 4 },
     modality: 'expressive',
     domain: '语言沟通',
     summary: '看到实物或图片，能说出它的名称',
@@ -497,6 +556,7 @@ export const EXPRESSION_TARGETS: ExpressionTarget[] = [
     name: '把词连成句',
     band: 'preschool',
     difficulty: 3,
+    settings: ['desk', 'home', 'floor'],
     modality: 'expressive',
     domain: '语言沟通',
     summary: '把两个词连成三个词以上的一句话',
@@ -632,6 +692,8 @@ export const EXPRESSION_TARGETS: ExpressionTarget[] = [
     name: '听两步指令',
     band: 'preschool',
     difficulty: 4,
+    settings: ['floor', 'desk', 'home', 'outdoor'],
+    settingDifficulty: { desk: 4, floor: 3, home: 3, outdoor: 5 },
     modality: 'receptive',
     domain: '语言沟通',
     summary: '听到「先…再…」两步指令，按顺序把两件事都做完',
@@ -746,6 +808,8 @@ export const EXPRESSION_TARGETS: ExpressionTarget[] = [
     name: '提问与回答',
     band: 'preschool',
     difficulty: 5,
+    settings: ['home', 'desk'],
+    settingDifficulty: { desk: 4, home: 3 },
     modality: 'expressive',
     domain: '语言沟通',
     summary: '能回答「什么/谁/在哪」，也能自己问一句',
@@ -869,6 +933,8 @@ export const EXPRESSION_TARGETS: ExpressionTarget[] = [
     name: '语用四类',
     band: 'preschool',
     difficulty: 6,
+    settings: ['home', 'outdoor', 'floor'],
+    settingDifficulty: { home: 5, outdoor: 6 },
     modality: 'expressive',
     domain: '语言沟通',
     summary: '请求、拒绝、求助、打招呼，四类里能自己说出三类',
@@ -983,6 +1049,8 @@ export const EXPRESSION_TARGETS: ExpressionTarget[] = [
     name: '说清一件事',
     band: 'school',
     difficulty: 7,
+    settings: ['desk', 'home'],
+    settingDifficulty: { home: 8 },
     modality: 'expressive',
     domain: '语言表达',
     summary: '用「谁—在哪—做了什么—然后」讲清一件亲身经历',
@@ -1077,6 +1145,7 @@ export const EXPRESSION_TARGETS: ExpressionTarget[] = [
     name: '拒绝与索回',
     band: 'school',
     difficulty: 8,
+    settings: ['home', 'floor'],
     modality: 'expressive',
     domain: '语言表达',
     summary: '不想给就说「不要」，东西被拿走就说「还给我」',
@@ -1202,6 +1271,8 @@ export const EXPRESSION_TARGETS: ExpressionTarget[] = [
     name: '主动求助',
     band: 'school',
     difficulty: 9,
+    settings: ['home', 'desk'],
+    settingDifficulty: { home: 8, desk: 9 },
     modality: 'expressive',
     domain: '语言表达',
     summary: '卡住了就找人开口说「帮我」，不自己硬撑也不放弃',
@@ -1325,6 +1396,7 @@ export const EXPRESSION_TARGETS: ExpressionTarget[] = [
     name: '复述通知',
     band: 'school',
     difficulty: 10,
+    settings: ['home', 'desk'],
     modality: 'expressive',
     domain: '语言表达',
     summary: '听完一句通知，能把关键信息说出来',
@@ -1437,6 +1509,7 @@ export const EXPRESSION_TARGETS: ExpressionTarget[] = [
     name: '电话说清三要素',
     band: 'school',
     difficulty: 11,
+    settings: ['home', 'desk'],
     modality: 'expressive',
     domain: '语言表达',
     summary: '电话或当面对别人说清「我是谁、我在哪、我需要什么」',
