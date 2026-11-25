@@ -1,17 +1,20 @@
 /**
- * 链式教学 · 目标库（生活技能 / 解决问题）· 6-12 岁
+ * 链式教学 · 目标库（生活技能 / 解决问题）· 0-12 岁三段
  *
- * 这一版按 skill「课堂记录量化工具」的 **L 段（6-12 岁 · 认知与自理）** 重排：
- *   L2 用钱与找零 → A5   L3 按课表收拾书包 → A4   L5 突发情况第一步 → P4
- * K 段（6-12 岁 · 语言表达）对 P 组：
- *   K2 明确拒绝与索回 → P2   K3 主动求助 → P1
+ * 分三段，由易到难，段位对齐 skill「课堂记录量化工具」的 references/goal-codes.md：
  *
- * 洗手、穿鞋这两条是从 J 段（3-6 岁）保留下来当**入门项**的：
- * 6-12 岁里功能水平偏低的孩子仍然卡在这里，但它们是起点不是终点，
- * 所以 difficulty 排在最前面，方便老师按能力往下取，不当主推内容。
+ *   infant   0-3 岁   生活自理 E 段（E1 抓食吞咀 / E2 用杯饮水 / E3 穿衣配合 / E4 如厕准备）
+ *   preschool 3-6 岁   生活自理 J 段（J3 穿脱 / J4 整理）
+ *   school   6-12 岁   认知与自理 L 段（L2 用钱找零 / L3 收拾书包 / L5 突发情况第一步）
+ *                     语言表达 K 段（K2 拒绝与索回 / K3 主动求助）
+ *
+ * band 只标「这条链的常规年龄」，**不限制谁能练**。
+ * 一个 8 岁但功能水平在 3 岁的孩子，就该做 infant 段的链——跨段取用是正常做法，
+ * 不要因为「他都 8 岁了」硬把他往 school 段推。
+ * difficulty 是全表连续的 1–17，所以「下一个练什么」不用分段判断，直接按难度取。
  *
  * 为什么不直接沿用 goal-codes.md 的段位码：
- * skill 里 L1–L5 是**单回合目标**（「20 元以内独立完成付款与找零核对」），判的是结果；
+ * skill 里 E/J/L 是**单回合目标**（「20 元以内独立完成付款与找零核对」），判的是结果；
  * 这里一条链是**一串有序动作**，判的是「从第几步开始需要帮」。
  * 口径对不上，硬套会让课堂记录和机构汇报两本账。
  * 对照关系写在每条 skillRef 里，不取代它。
@@ -21,10 +24,12 @@
  *   2. 完成标准必须可观察。「理解洗手的重要性」不是标准，「两侧袖口过肘」才是。
  *   3. 辅助提示从轻到重写，用 / 分隔。写「帮忙」等于没写。
  *
- * 关于 selfInitiated：
- *   P 组前几步全是自发启动（停手 → 看人 → 开口）。
- *   老师一旦给指令，练的就变成「听指令做」而不是「遇到事自己想起来」，
- *   回到家、换到学校就整个塌掉。这几步必须等，不能催。
+ * 关于 selfInitiated（不给指令、等孩子自己启动的那几步）：
+ *   两类目标必然有自发步——
+ *     · 身体信号类：如厕表示（尿湿了才有机可教，成人没法「指令」一个尿意）；
+ *     · 情境类：求助、走散了、突发情况（老师一给指令，练的就变成「听指令做」）。
+ *   其余目标都该由成人一句指令启动。
+ *   自发步必须连成一段，中间插一条指令，孩子自己启动的节奏就断了。
  *
  * 纯数据 + import type，无运行时依赖，可被 node 单测直接加载。
  */
@@ -32,18 +37,221 @@
 import type { ChainMode, ChainGroup, ChainTarget } from './chainTraining';
 
 // ---------------------------------------------------------------------------
-// A 组 · 生活技能
+// A 组 · 生活技能 · 0-3 岁
+// ---------------------------------------------------------------------------
+
+const CUP_DRINK: ChainTarget = {
+  id: 'A1',
+  name: '用杯喝水',
+  group: 'skill',
+  band: 'infant',
+  difficulty: 1,
+  settings: ['home'],
+  summary: '自己扶着杯子喝水，从扶杯、送到嘴边到喝完放下，不用大人一直托着杯底。',
+  standard2: '用敞口杯或吸管杯独立喝水，不呛不洒（skill E2 原文口径）',
+  onePenalty: '需成人扶杯；洒出较多',
+  sessionSuccess: '一节课练 3 遍，其中 1 遍从扶杯到放下全程不用手把手',
+  skillRef: 'E2',
+  defaultMode: 'backward',
+  sessionRuns: 3,
+  needs: ['一只小号敞口杯或吸管杯（装 1/3 水）', '防水围兜', '一块干抹布'],
+  steps: [
+    {
+      order: 1,
+      name: '双手扶杯',
+      sd: '扶好杯子',
+      criterion: '两只手都扶在杯壁上，杯子没有倾倒',
+      hint: '把他的手放到杯壁上 / 手把手扶着',
+    },
+    {
+      order: 2,
+      name: '送到嘴边',
+      sd: '喝吧',
+      criterion: '杯沿靠到嘴唇，没有撞到牙齿或鼻子',
+      hint: '托一下杯底 / 扶着他的手腕往嘴边带',
+    },
+    {
+      order: 3,
+      name: '倾斜喝一口',
+      sd: '喝一口',
+      criterion: '杯子倾斜、水咽下去，洒出不超过一小口',
+      hint: '托杯底轻轻往上抬 / 示范仰头喝',
+    },
+    {
+      order: 4,
+      name: '放下杯子',
+      sd: '放下',
+      criterion: '杯子放回桌面或托盘，没有扔出去',
+      hint: '指一下桌面 / 扶着他的手放下去',
+    },
+  ],
+  familyGuide: {
+    how: '杯子固定放在同一个位置，每次喝都在那儿拿。位置固定比反复提醒有用得多。',
+    avoid: '别用「倒过来晃也不洒」的学饮杯逗他玩。玩过一次，之后每次拿到杯子都想晃，水就喝不进去了。',
+  },
+};
+
+const FINGER_FOOD: ChainTarget = {
+  id: 'A2',
+  name: '抓食送入口中',
+  group: 'skill',
+  band: 'infant',
+  difficulty: 2,
+  settings: ['home'],
+  summary: '用手从碗里抓起小块食物，稳稳送到嘴边放进嘴里，不是抓着玩或者糊一脸。',
+  standard2: '能咀嚼固体食物不呛；用手抓食送入口中（skill E1 原文口径）',
+  onePenalty: '只吃软食；抓食洒落 >50%',
+  sessionSuccess: '一节课练 3 遍，其中 1 遍抓起—送到—吃下三步不用手把手',
+  skillRef: 'E1',
+  defaultMode: 'backward',
+  sessionRuns: 3,
+  needs: ['一小碗切块的手指食物（香蕉块、馒头丁等，约成人小指头大小）', '防水围兜', '湿巾'],
+  steps: [
+    {
+      order: 1,
+      name: '伸手去拿',
+      sd: '拿一个吃',
+      criterion: '手伸进碗里，抓住一样食物',
+      hint: '指一下碗里 / 把碗往他面前推',
+    },
+    {
+      order: 2,
+      name: '捏稳',
+      sd: '捏住',
+      criterion: '手指捏住食物，抬手时没有掉回碗里',
+      hint: '帮他把手指合上 / 换一块更好抓的',
+    },
+    {
+      order: 3,
+      name: '送到嘴边',
+      sd: '送到嘴里',
+      criterion: '手到嘴边，食物中途没有掉落',
+      hint: '扶一下他的手肘 / 示范送到嘴边',
+    },
+    {
+      order: 4,
+      name: '放进嘴里',
+      sd: '吃吧',
+      criterion: '食物进嘴、咀嚼、咽下，没有一直含在嘴里',
+      hint: '示范张嘴 / 说「嚼一嚼」',
+    },
+  ],
+  familyGuide: {
+    how: '一次只放 3–4 块在碗里。堆满一碗，孩子会用手抓一把玩，反而不肯好好拿。',
+    avoid: '别在他抓不稳的时候直接把食物塞进嘴里。这一塞，「送到嘴边」这一步就永远轮不到他做。',
+  },
+};
+
+const DRESS_COOPERATE: ChainTarget = {
+  id: 'A3',
+  name: '穿衣配合',
+  group: 'skill',
+  band: 'infant',
+  difficulty: 3,
+  settings: ['home'],
+  summary: '穿脱衣服时不用被拽：听到「伸手」就把手臂伸进袖子，听到「抬脚」就把脚伸进裤腿。',
+  standard2: '穿脱时主动伸手、抬脚 ≥2 次/次（skill E3 原文口径）',
+  onePenalty: '需口头提示；被动配合',
+  sessionSuccess: '一节课穿脱外套 2 次，其中 1 次三次配合都不用拽他的手',
+  skillRef: 'E3',
+  defaultMode: 'backward',
+  sessionRuns: 2,
+  needs: ['一件宽松开衫或套头衫', '一条松紧带长裤'],
+  steps: [
+    {
+      order: 1,
+      name: '伸手进袖',
+      sd: '伸手',
+      criterion: '手臂朝袖口方向伸出，不是被拽进去',
+      hint: '把袖子撑开对着他的手 / 轻碰一下他的手背',
+    },
+    {
+      order: 2,
+      name: '手出袖口',
+      sd: '手出来',
+      criterion: '手掌从袖口穿出来',
+      hint: '从袖口外面轻轻带一下 / 让他在里面自己推',
+    },
+    {
+      order: 3,
+      name: '抬脚进裤腿',
+      sd: '抬脚',
+      criterion: '一只脚抬起并伸进裤腿口',
+      hint: '把裤腿撑开 / 托一下他的脚',
+    },
+    {
+      order: 4,
+      name: '头钻进领口',
+      sd: '头低一下',
+      criterion: '头从领口穿出来',
+      hint: '把领口撑大 / 扶一下他的头',
+    },
+  ],
+  familyGuide: {
+    how: '每天固定两个穿衣时点（起床、洗澡后），用同一句口令。次数够多，配合才会稳定。',
+    avoid: '别为了快就一边说着「伸手」一边把他的手拽进去。手被拽过一次，下次他就等着被拽了。',
+  },
+};
+
+const TOILET_SIGNAL: ChainTarget = {
+  id: 'A4',
+  name: '如厕表示',
+  group: 'skill',
+  band: 'infant',
+  difficulty: 4,
+  settings: ['home'],
+  summary: '尿湿或想尿时能表示出来——指裤子、说「湿」或者拉大人的手，而不是一直忍到哭。',
+  standard2: '尿湿后能表示不适；对坐便不抗拒（skill E4 原文口径）',
+  onePenalty: '只在不舒服时哭；抗拒坐便',
+  sessionSuccess: '一节课设 2 次换尿布的情境，其中 1 次他能主动指裤子或拉大人的手',
+  skillRef: 'E4',
+  defaultMode: 'forward',
+  sessionRuns: 2,
+  needs: ['便盆或儿童坐便圈', '易穿脱的裤子', '记录表（记下每次尿湿的时间）'],
+  steps: [
+    {
+      order: 1,
+      name: '感觉到湿了停下',
+      sd: '（不给指令，等他自己表现）',
+      selfInitiated: true,
+      criterion: '动作停下，低头看裤子或用手抓裤子',
+      hint: '说「是不是湿了」 / 指一下他的裤子',
+    },
+    {
+      order: 2,
+      name: '表示出来',
+      sd: '（不给指令）',
+      selfInitiated: true,
+      criterion: '指裤子、说「湿」或拉大人的手过来',
+      hint: '问「怎么了」 / 指一下他的裤子给他看',
+    },
+    {
+      order: 3,
+      name: '配合换衣或坐便',
+      sd: '来，换一下',
+      criterion: '走向换衣处或坐上便盆，不抗拒、不打挺',
+      hint: '牵他的手过去 / 自己先坐下示范',
+    },
+  ],
+  familyGuide: {
+    how: '先记一周尿湿时间，找出规律（多半在喝水后 20–30 分钟）。到点前带他去坐一次便盆，成功率高得多。',
+    avoid: '别在尿湿后批评。这个阶段的目标是「愿意表示」，一被说，孩子学会的是藏起来不让人发现，反而更难练。',
+  },
+};
+
+// ---------------------------------------------------------------------------
+// A 组 · 生活技能 · 3-6 岁
 // ---------------------------------------------------------------------------
 
 const WASH_HANDS: ChainTarget = {
-  id: 'A1',
+  id: 'A5',
   name: '洗手',
   group: 'skill',
-  band: 'school',
-  difficulty: 1,
+  band: 'preschool',
+  difficulty: 6,
   settings: ['home'],
   summary: '饭前便后不用提醒也能自己走完一遍洗手：从拉袖子到擦干，九步不跳、不半路跑掉。',
-  standard2: '全程 9 步独立完成 ≥5 次/周，中途不离开洗手台，冲净后手上无泡沫残留',
+  standard2: '全程 9 步独立完成 ≥2 次/周，中途不离开洗手台，冲净后手上无泡沫残留',
   onePenalty: '会开水和搓手，但搓手背总要提醒；或冲到一半手一甩就走',
   sessionSuccess: '一节课练 2–3 遍，其中至少 1 遍从第 1 步做到第 9 步没有中途离场',
   skillRef: 'J4',
@@ -122,21 +330,79 @@ const WASH_HANDS: ChainTarget = {
   },
 };
 
-const PUT_ON_SHOES: ChainTarget = {
-  id: 'A2',
-  name: '穿鞋',
+const TIDY_TOYS: ChainTarget = {
+  id: 'A6',
+  name: '收玩具',
   group: 'skill',
-  band: 'school',
-  difficulty: 2,
+  band: 'preschool',
+  difficulty: 7,
+  settings: ['floor', 'home'],
+  summary: '听到「收玩具了」能停下来，把地上的玩具一件件放进筐，直到地面看不见玩具。',
+  standard2: '听到指令后 5 分钟内独立收完，地面无残留，不需逐件提示',
+  onePenalty: '收了三五件就开始玩；或每一件都要指一次才捡',
+  sessionSuccess: '一节课练 2 遍，其中 1 遍从头收到尾，中间不多于 2 次提醒',
+  skillRef: 'J4',
+  defaultMode: 'total',
+  sessionRuns: 2,
+  needs: ['玩具筐或收纳箱', '地垫上摊开的玩具（8–15 件）'],
+  steps: [
+    {
+      order: 1,
+      name: '停手',
+      sd: '收玩具了',
+      criterion: '手上动作停下，看向成人，持续 ≥2 秒',
+      hint: '叫名字 / 挡一下他手上的玩具 / 手把手把玩具放下',
+    },
+    {
+      order: 2,
+      name: '找到筐',
+      sd: '筐在哪',
+      criterion: '眼睛看向筐、手指向筐，或直接走过去',
+      hint: '指一下筐 / 说「筐在柜子旁边」',
+    },
+    {
+      order: 3,
+      name: '捡一件',
+      sd: '捡起来',
+      criterion: '弯腰捡起一件玩具，握在手里',
+      hint: '指着具体一件说「先收这个」 / 手把手捡',
+    },
+    {
+      order: 4,
+      name: '放进筐',
+      sd: '放进去',
+      criterion: '松手让玩具落进筐内，不掉在筐外',
+      hint: '指一下筐 / 手把手放进去',
+    },
+    {
+      order: 5,
+      name: '环视检查',
+      sd: '还有吗',
+      criterion: '自己转头看一圈地面，没有玩具才走开',
+      hint: '指一下还剩的 / 说「那边还有一个」',
+    },
+  ],
+  familyGuide: {
+    how: '把玩具量控制在 8–15 件。太多会变成「永远收不完」，孩子收一半就放弃不是态度问题，是量的问题。',
+    avoid: '别一边说「收玩具」一边自己动手收。你收得比他快，他就学会等。',
+  },
+};
+
+const PUT_ON_SHOES: ChainTarget = {
+  id: 'A7',
+  name: '穿脱鞋',
+  group: 'skill',
+  band: 'preschool',
+  difficulty: 8,
   settings: ['home', 'outdoor'],
-  summary: '出门前自己坐到椅子上，把两只脚伸进鞋、提上后跟、粘好粘扣，不用弯腰抱着脚塞半天。',
-  standard2: '两只鞋独立穿好并粘牢，左右不反，全程 ≤2 分钟，不需提醒',
-  onePenalty: '会伸脚不会提后跟；或粘扣粘反、粘一半就站起来',
-  sessionSuccess: '一节课练 3 遍，其中至少 1 遍两只鞋都不用手把手',
+  summary: '出门前自己坐到椅子上把两只脚伸进鞋、提上后跟、粘好粘扣；回家能自己脱下来放回鞋架。',
+  standard2: '穿：两只鞋独立穿好并粘牢，左右不反；脱：脱下后摆回鞋架（skill J3 口径）',
+  onePenalty: '会伸脚不会提后跟；或粘扣粘反、脱完随手一扔',
+  sessionSuccess: '一节课穿 2 次脱 2 次，其中各 1 次不用手把手',
   skillRef: 'J3',
   defaultMode: 'backward',
   sessionRuns: 3,
-  needs: ['一双粘扣鞋（系带单列，别混着练）', '门口的小椅子或垫子'],
+  needs: ['一双粘扣鞋（系带单列，别混着练）', '门口的小椅子', '鞋架'],
   steps: [
     {
       order: 1,
@@ -173,6 +439,14 @@ const PUT_ON_SHOES: ChainTarget = {
       criterion: '粘扣对齐压平，扯一下不脱开',
       hint: '示范粘一次 / 扶着他的手压下去',
     },
+    {
+      order: 6,
+      name: '脱鞋摆回去',
+      sd: '脱下来放好',
+      criterion: '两只鞋脱下后并排摆在鞋架上，鞋头朝外',
+      hint: '指一下鞋架 / 示范鞋头朝外',
+      optional: true, // 出门环节只练穿；回家环节才练这一步
+    },
   ],
   familyGuide: {
     how: '把穿鞋固定成出门前最后一个动作，椅子放在固定位置。位置固定了，孩子才知道「到这儿就该穿鞋」。',
@@ -180,12 +454,17 @@ const PUT_ON_SHOES: ChainTarget = {
   },
 };
 
+
+// ---------------------------------------------------------------------------
+// A 组 · 生活技能 · 6-12 岁
+// ---------------------------------------------------------------------------
+
 const BRUSH_TEETH: ChainTarget = {
-  id: 'A3',
+  id: 'A8',
   name: '刷牙',
   group: 'skill',
   band: 'school',
-  difficulty: 3,
+  difficulty: 12,
   settings: ['home'],
   summary: '早晚自己完成一遍刷牙：挤牙膏、刷外面刷里面、漱口、冲牙刷、放回原位，不用人站在旁边盯。',
   standard2: '早晚各一次，7 步独立完成，全程 ≥90 秒，刷到里面不跳过',
@@ -252,14 +531,14 @@ const BRUSH_TEETH: ChainTarget = {
 };
 
 const PACK_SCHOOLBAG: ChainTarget = {
-  id: 'A4',
+  id: 'A9',
   name: '按课表整理书包',
   group: 'skill',
   band: 'school',
-  difficulty: 4,
+  difficulty: 13,
   settings: ['desk', 'home'],
   summary: '照着第二天的课表，把书、作业、文具一样样装进书包，最后对一遍不漏东西。',
-  standard2: '5 分钟内独立备齐当天用品，遗漏 ≤1 项，不需口头提醒看课表',
+  standard2: '5 分钟内独立备齐当天用品，遗漏 ≤1 项，不需口头提醒看课表（skill L3 口径）',
   onePenalty: '会把书塞进包，但不看课表；或装完不检查，第二天到校发现缺作业',
   sessionSuccess: '一节课练 2 遍，其中 1 遍不看课表也能按科目找齐（说明课表已内化）',
   skillRef: 'L3',
@@ -318,14 +597,14 @@ const PACK_SCHOOLBAG: ChainTarget = {
 };
 
 const BUY_THING: ChainTarget = {
-  id: 'A5',
+  id: 'A10',
   name: '用钱买东西',
   group: 'skill',
   band: 'school',
-  difficulty: 5,
+  difficulty: 14,
   settings: ['outdoor', 'home'],
   summary: '在便利店自己完成一次买东西：想好买什么、看价格、数够不够、递钱、接找零、拿上东西走。',
-  standard2: '20 元以内独立完成付款与找零核对，连续 3 次中 ≥2 次正确',
+  standard2: '20 元以内独立完成付款与找零核对，连续 3 次中 ≥2 次正确（skill L2 口径）',
   onePenalty: '会递钱不会等找零；或钱一递就跑开，东西忘了拿',
   sessionSuccess: '一节课在真实便利店完成 2 次，其中 1 次全程不用提示',
   skillRef: 'L2',
@@ -383,11 +662,11 @@ const BUY_THING: ChainTarget = {
 };
 
 const SHOWER: ChainTarget = {
-  id: 'A6',
+  id: 'A11',
   name: '淋浴与擦干',
   group: 'skill',
   band: 'school',
-  difficulty: 6,
+  difficulty: 15,
   settings: ['home'],
   summary: '自己完成一次淋浴：脱衣归位、试水温、淋湿、打沐浴露、冲净、关水、擦干、穿好睡衣。',
   standard2: '8 步独立完成，水温自己试过再站进去，出浴室时身上擦到不滴水',
@@ -460,25 +739,122 @@ const SHOWER: ChainTarget = {
   },
 };
 
+
 // ---------------------------------------------------------------------------
 // P 组 · 解决问题
 // ---------------------------------------------------------------------------
 
-const ASK_FOR_HELP: ChainTarget = {
+const REACH_FOR_HAND: ChainTarget = {
   id: 'P1',
+  name: '够不着时拉大人的手',
+  group: 'problem',
+  band: 'infant',
+  difficulty: 5,
+  settings: ['home', 'floor'],
+  summary: '想要的东西拿不到时，不是站着哭，而是转向大人、拉住他的手往那个方向带——这是求助最早的形式。',
+  standard2: '够不到时 10 秒内转向大人并拉手或指物，一周 ≥3 次',
+  onePenalty: '会拉手，但要大人先问「你要什么」；或直接拉着人走却不说不要哪个',
+  sessionSuccess: '一节课设 3 次够不着的情境，其中 2 次能自己转向大人并拉手',
+  defaultMode: 'forward',
+  sessionRuns: 3,
+  needs: ['一样他想要但放高的东西（透明罐更好）', '一张稳的小凳子（先收起来）'],
+  steps: [
+    {
+      order: 1,
+      name: '停下不再硬够',
+      sd: '（不给指令）',
+      selfInitiated: true,
+      criterion: '停止跳跃、拉扯、够的动作，持续 ≥2 秒',
+      hint: '说「停」 / 把他从柜子边带开半步',
+    },
+    {
+      order: 2,
+      name: '转向大人',
+      sd: '（不给指令）',
+      selfInitiated: true,
+      criterion: '转头或转身，身体朝向身边的大人',
+      hint: '叫他的名字 / 走到他侧前方让他更容易看到',
+    },
+    {
+      order: 3,
+      name: '拉手或指给他看',
+      sd: '（不给指令）',
+      selfInitiated: true,
+      criterion: '抓住大人的手往目标方向拉，或手指目标同时发声',
+      hint: '把他的手放到你手上 / 说「拉我过去」',
+    },
+  ],
+  familyGuide: {
+    how: '把零食和常用玩具放在「他一定够不到」的高度。够得到就没有求助的机会，放太高又会直接放弃——中间那一档才有用。',
+    avoid: '别在他还没拉手时就把东西拿下来。你预判得越准，他越不需要学这一招。',
+  },
+};
+
+// ---------------------------------------------------------------------------
+// P 组 · 解决问题 · 3-6 岁
+// ---------------------------------------------------------------------------
+
+const STOP_ON_NO: ChainTarget = {
+  id: 'P2',
+  name: '听到「不可以」停下来',
+  group: 'problem',
+  band: 'preschool',
+  difficulty: 9,
+  settings: ['home', 'outdoor', 'floor'],
+  summary: '听到「不可以」能立刻停手、把手从东西上拿开，并且不马上又回去——这是所有安全规则的第一道闸。',
+  standard2: '听到「不可以」能停止动作；能等待 10 秒（skill D5 原文口径）',
+  onePenalty: '需重复 2–3 次才停；等待 <5 秒',
+  sessionSuccess: '一节课设 3 次制止的情境，其中 2 次听一遍就停、并且能等 10 秒不回去',
+  skillRef: 'D5',
+  defaultMode: 'forward',
+  sessionRuns: 3,
+  needs: ['一样他常见但不可以碰的东西（插座、热水杯、别人的杯子）', '一个计时器或手机秒表'],
+  steps: [
+    {
+      order: 1,
+      name: '停手',
+      sd: '不可以',
+      criterion: '动作在 2 秒内停下，手停在半空或原位',
+      hint: '音量提高再说一遍 / 手挡在他和物品之间',
+    },
+    {
+      order: 2,
+      name: '手拿开',
+      sd: '（不给指令）',
+      selfInitiated: true,
+      criterion: '手从物品上移开，退后或转向别处',
+      hint: '指一下他的手 / 说「手放下来」',
+    },
+    {
+      order: 3,
+      name: '等一会儿不回去',
+      sd: '（不给指令）',
+      selfInitiated: true,
+      criterion: '10 秒内没有再去碰，能转去做别的事或看着大人',
+      hint: '用计时器数给他听 / 递给他另一样东西',
+    },
+  ],
+  familyGuide: {
+    how: '把「不可以」固定用在真正危险的事上。一天说十遍「不可以」，这个词就废了，孩子会当背景音。',
+    avoid: '别在孩子停下之后又补一句「怎么这么不听话」。停下来就该结束，追着说会让他下次犹豫要不要停。',
+  },
+};
+
+const ASK_FOR_HELP: ChainTarget = {
+  id: 'P3',
   name: '不会做时说「帮我」',
   group: 'problem',
-  band: 'school',
-  difficulty: 7,
+  band: 'preschool',
+  difficulty: 10,
   settings: ['desk', 'home'],
-  summary: '作业不会写、拉链拉不上、鞋带开了时，先停手，再找到身边的大人开口说「帮我」，不是硬掰也不是扔掉。',
+  summary: '拼图拼不上、裤子拉不上时，先停手，再找到身边的大人开口说「帮我」，不是硬掰也不是扔掉。',
   standard2: '遇到卡住的任务，10 秒内停手并主动开口求助，一周 ≥3 次，不需事先提醒',
   onePenalty: '会说「帮我」，但只在被问「要不要帮忙」之后才说；或先闹一场再说',
   sessionSuccess: '一节课设 3 个卡住的情境，其中 2 个能自己停下来并开口',
   skillRef: 'K3',
   defaultMode: 'forward',
   sessionRuns: 3,
-  needs: ['一道明显超出他能力的题', '一件他自己拉不上的衣物'],
+  needs: ['一个明显拼不上的拼图（缺块或超难度）', '一件他穿不上的衣物'],
   steps: [
     {
       order: 1,
@@ -512,20 +888,20 @@ const ASK_FOR_HELP: ChainTarget = {
 };
 
 const THING_TAKEN: ChainTarget = {
-  id: 'P2',
+  id: 'P4',
   name: '东西被拿走',
   group: 'problem',
-  band: 'school',
-  difficulty: 8,
-  settings: ['desk', 'floor'],
-  summary: '同学拿走他的笔或橡皮时，先停手不动手，大声说「不要」，把东西拿回来，再去告诉老师发生了什么。',
+  band: 'preschool',
+  difficulty: 11,
+  settings: ['floor', 'home'],
+  summary: '玩具被拿走时，先停手不动手，大声说「不要」，把东西拿回来，再去告诉大人发生了什么。',
   standard2: '4 步里前三步独立完成（不动手 → 说「不要」→ 拿回），一周 ≥2 次',
   onePenalty: '会哭会喊但不动手也不求助；或直接上手抢打，事后说不清经过',
   sessionSuccess: '一节课设 2 个情境，其中 1 个能走完前 3 步且没有推打',
   skillRef: 'K2',
   defaultMode: 'forward',
   sessionRuns: 2,
-  needs: ['一件他正在用、明确属于他的文具', '一位配合扮演的成人或同学'],
+  needs: ['一件他正在玩的、明确属于他的玩具', '一位配合扮演的成人或同伴'],
   steps: [
     {
       order: 1,
@@ -548,29 +924,34 @@ const THING_TAKEN: ChainTarget = {
       name: '拿回东西',
       sd: '（不给指令）',
       selfInitiated: true,
-      criterion: '把东西拿回手里或放进抽屉，没有继续拉扯',
+      criterion: '把玩具拿回手里或护在身前，没有继续拉扯',
       hint: '指一下他的手 / 说「拿回来」',
     },
     {
       order: 4,
-      name: '告诉老师',
+      name: '告诉大人',
       sd: '去告诉老师',
-      criterion: '走到老师面前，说出「他拿我的」或同时指人和指物',
+      criterion: '走到大人面前，说出「他拿我的」或同时指人和指物',
       hint: '牵他过去 / 说前半句「老师，他…」',
     },
   ],
   familyGuide: {
     how: '在家用「拿走—还回来」的小游戏练前 3 步，拿完一定还回去。重点是让孩子体验「说出来东西就回来了」，而不是「抢回去才算赢」。',
-    avoid: '别教孩子「他抢你就抢回来」。这条链保的是孩子的安全和表达，不是输赢；也别在孩子面前评判对方。',
+    avoid: '别教孩子「他抢你就抢回来」。这条链保的是孩子的安全和表达，不是输赢；也别在孩子面前评判对方小孩。',
   },
 };
 
+
+// ---------------------------------------------------------------------------
+// P 组 · 解决问题 · 6-12 岁
+// ---------------------------------------------------------------------------
+
 const GOT_LOST: ChainTarget = {
-  id: 'P3',
+  id: 'P5',
   name: '走散了怎么办',
   group: 'problem',
   band: 'school',
-  difficulty: 9,
+  difficulty: 16,
   settings: ['outdoor'],
   summary: '在商场或街上找不到家人时，不乱跑、回到刚才的位置、找穿制服的人或带小孩的大人，说清自己走散了。',
   standard2: '5 步能在实地演练中独立走完，全程不跑出视线范围、不跟陌生人离场',
@@ -628,14 +1009,14 @@ const GOT_LOST: ChainTarget = {
 };
 
 const EMERGENCY_FIRST_STEP: ChainTarget = {
-  id: 'P4',
+  id: 'P6',
   name: '突发情况第一步',
   group: 'problem',
   band: 'school',
-  difficulty: 10,
+  difficulty: 17,
   settings: ['home', 'outdoor'],
   summary: '遇到受伤流血、着火冒烟、有人倒地、陌生人搭讪、被反锁这五类情况，先离开危险、再找人、能说清发生在哪。',
-  standard2: '5 类情境中 ≥4 类能说出并演示第一步，不自行处理危险源',
+  standard2: '5 类情境中 ≥4 类能说出并演示第一步，不自行处理危险源（skill L5 口径）',
   onePenalty: '说得出但做不出；或第一时间跑去找人，却没先离开危险的地方',
   sessionSuccess: '一节课过 3 类情境，其中 2 类能自己先离开危险再找大人',
   skillRef: 'L5',
@@ -689,17 +1070,30 @@ const EMERGENCY_FIRST_STEP: ChainTarget = {
   },
 };
 
+
+// ---------------------------------------------------------------------------
+// 汇总与查询
+// ---------------------------------------------------------------------------
+
+/** 按 difficulty 升序排列，数组顺序 == 难度顺序，方便核对 */
 export const CHAIN_TARGETS: ChainTarget[] = [
-  WASH_HANDS,
-  PUT_ON_SHOES,
-  BRUSH_TEETH,
-  PACK_SCHOOLBAG,
-  BUY_THING,
-  SHOWER,
-  ASK_FOR_HELP,
-  THING_TAKEN,
-  GOT_LOST,
-  EMERGENCY_FIRST_STEP,
+  CUP_DRINK, // 1  0-3 岁
+  FINGER_FOOD, // 2
+  DRESS_COOPERATE, // 3
+  TOILET_SIGNAL, // 4
+  REACH_FOR_HAND, // 5
+  WASH_HANDS, // 6  3-6 岁
+  TIDY_TOYS, // 7
+  PUT_ON_SHOES, // 8
+  STOP_ON_NO, // 9
+  ASK_FOR_HELP, // 10
+  THING_TAKEN, // 11
+  BRUSH_TEETH, // 12  6-12 岁
+  PACK_SCHOOLBAG, // 13
+  BUY_THING, // 14
+  SHOWER, // 15
+  GOT_LOST, // 16
+  EMERGENCY_FIRST_STEP, // 17
 ];
 
 export function groupOf<T extends { group: ChainGroup }>(targets: T[], group: ChainGroup): T[] {
@@ -711,7 +1105,7 @@ export function getChainTarget(id: string | undefined): ChainTarget | undefined 
   return CHAIN_TARGETS.find((t) => t.id === id);
 }
 
-/** 挑下一个目标：按难度顺序取第一个还没稳的 */
+/** 挑下一个目标：按难度顺序取第一个还没稳的。跨段也照这个顺序，因为难度就是全表连续的 */
 export function suggestNextChain(stableIds: string[]): ChainTarget | undefined {
   const stable = new Set(stableIds);
   const pending = CHAIN_TARGETS.filter((t) => !stable.has(t.id));
@@ -719,12 +1113,26 @@ export function suggestNextChain(stableIds: string[]): ChainTarget | undefined {
   return pending.reduce((a, b) => (a.difficulty <= b.difficulty ? a : b));
 }
 
-/** 列表页顶部的两段式分区 */
+/** 列表页顶部的两段式分区（生活技能 / 解决问题），段内按难度升序 */
 export function chainGroups(targets: ChainTarget[] = CHAIN_TARGETS): { group: ChainGroup; targets: ChainTarget[] }[] {
   return (['skill', 'problem'] as ChainGroup[]).map((group) => ({
     group,
     targets: groupOf(targets, group).slice().sort((a, b) => a.difficulty - b.difficulty),
   }));
+}
+
+/**
+ * 按年龄段切片，列表页用来做「0-3 / 3-6 / 6-12」的折叠。
+ * 段内按难度升序，空段不返回。
+ */
+export function targetsByBand(targets: ChainTarget[] = CHAIN_TARGETS): { band: string; targets: ChainTarget[] }[] {
+  const order = ['infant', 'preschool', 'school'];
+  return order
+    .map((band) => ({
+      band,
+      targets: targets.filter((t) => t.band === band).slice().sort((a, b) => a.difficulty - b.difficulty),
+    }))
+    .filter((g) => g.targets.length > 0);
 }
 
 /** 三种排法都列出来，供老师现场改 */

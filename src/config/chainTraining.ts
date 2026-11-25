@@ -29,6 +29,19 @@
 import type { DttPromptLevel } from './dtt';
 import type { ExpressionBand, SettingId } from './expressionTargets';
 
+/**
+ * 年龄段。和 expressionTargets 的 ExpressionBand 同源，
+ * 但这里的分段意义不同：语言表达是按**话说到什么程度**分，链式教学是按
+ * **一件事能不能自己做完**分。同样 6 岁，有的孩子在做 E 段的用杯喝水，
+ * 有的在做 L 段的花钱找零——所以 band 只标「这条链的常规年龄」，
+ * 不限制谁能练。老师按孩子的实际能力跨段取用，这是正常做法。
+ */
+export const CHAIN_BAND_META: Record<ExpressionBand, { label: string; short: string }> = {
+  infant: { label: '0-3 岁', short: '0-3' },
+  preschool: { label: '3-6 岁', short: '3-6' },
+  school: { label: '6-12 岁', short: '6-12' },
+};
+
 /** 两个分组：生活技能 / 解决问题。它们共用同一套链式结构，只是内容不同。 */
 export type ChainGroup = 'skill' | 'problem';
 

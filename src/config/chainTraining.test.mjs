@@ -23,8 +23,8 @@ const chainLib = await read('chainTraining.ts');
 const lib = await read('chainTargets.ts');
 const dtt = await read('dtt.ts');
 
-const { CHAIN_TARGETS, chainGroups, getChainTarget, suggestNextChain, needsLine } = lib;
-const { chainPlan, chainStats, nextProgress, normalizeProgress, clampMastered, chainLine, CHAIN_MASTER_STREAK, CHAIN_GROUP_META, CHAIN_MODE_META } = chainLib;
+const { CHAIN_TARGETS, chainGroups, targetsByBand, getChainTarget, suggestNextChain, needsLine } = lib;
+const { chainPlan, chainStats, nextProgress, normalizeProgress, clampMastered, chainLine, CHAIN_MASTER_STREAK, CHAIN_GROUP_META, CHAIN_MODE_META, CHAIN_BAND_META } = chainLib;
 
 // ---------------------------------------------------------------------------
 // 一、目标库结构
@@ -69,10 +69,40 @@ for (const t of CHAIN_TARGETS) {
 
   assert.ok(t.needs.length > 0, `${t.id} 要写清楚现场准备什么`);
   assert.ok(t.settings.length > 0, `${t.id} 至少声明一个训练场景`);
-  // 这一版整体对齐 6-12 岁（L 段）。混进 preschool 就说明有一条没跟着改
-  assert.equal(t.band, 'school', `${t.id}「${t.name}」的年龄段应为 school（6-12 岁）`);
+  // band 必须是三段之一，写错字会让这条链在任何分段下都不显示，安静地消失
+  assert.ok(CHAIN_BAND_META[t.band], `${t.id}「${t.name}」的 band「${t.band}」不认识`);
   assert.ok(t.sessionRuns >= 1, `${t.id} 的 sessionRuns 至少 1 遍`);
   assert.ok(t.familyGuide?.how && t.familyGuide?.avoid, `${t.id} 的家庭指导要写 how 和 avoid 两条`);
+}
+
+// ---------------------------------------------------------------------------
+// 一·五、0-12 岁三段都要有内容，且难度必须按段递增
+// ---------------------------------------------------------------------------
+
+const BANDS = ['infant', 'preschool', 'school'];
+
+for (const b of BANDS) {
+  assert.ok(CHAIN_TARGETS.some((t) => t.band === b), `${CHAIN_BAND_META[b].label} 这一段是空的`);
+}
+
+// 「由易到难」不是一句话，是两个可验证的条件：
+// 低段的最大难度不能超过高段的最小难度，否则列表按难度排下来会段与段交错。
+const maxDiff = (b) => Math.max(...CHAIN_TARGETS.filter((t) => t.band === b).map((t) => t.difficulty));
+const minDiff = (b) => Math.min(...CHAIN_TARGETS.filter((t) => t.band === b).map((t) => t.difficulty));
+assert.ok(maxDiff('infant') < minDiff('preschool'), `0-3 岁最大难度 ${maxDiff('infant')} 不该超过 3-6 岁最小难度 ${minDiff('preschool')}`);
+assert.ok(maxDiff('preschool') < minDiff('school'), `3-6 岁最大难度 ${maxDiff('preschool')} 不该超过 6-12 岁最小难度 ${minDiff('school')}`);
+
+// 阶段越往后，链的平均步数应该越多：链变长本身就是难度上升的一种体现
+const avgSteps = (b) => {
+  const list = CHAIN_TARGETS.filter((t) => t.band === b);
+  return list.reduce((n, t) => n + t.steps.length, 0) / list.length;
+};
+assert.ok(avgSteps('infant') <= avgSteps('preschool'), `0-3 岁平均 ${avgSteps('infant').toFixed(1)} 步，不该比 3-6 岁的 ${avgSteps('preschool').toFixed(1)} 步还多`);
+assert.ok(avgSteps('preschool') <= avgSteps('school'), `3-6 岁平均 ${avgSteps('preschool').toFixed(1)} 步，不该比 6-12 岁的 ${avgSteps('school').toFixed(1)} 步还多`);
+
+// 0-3 岁的链不能太长：这个年龄段注意力短，超过 5 步现场就散了
+for (const t of CHAIN_TARGETS.filter((x) => x.band === 'infant')) {
+  assert.ok(t.steps.length <= 5, `${t.id}「${t.name}」有 ${t.steps.length} 步，0-3 岁的链不该超过 5 步`);
 }
 
 // ---------------------------------------------------------------------------
@@ -84,31 +114,31 @@ const problemTargets = CHAIN_TARGETS.filter((t) => t.group === 'problem');
 assert.ok(skillTargets.length > 0 && problemTargets.length > 0, '两个分组都要有内容，否则第二区是空的');
 
 for (const t of skillTargets) {
-  // 生活技能是成人发指令启动的，不该有「等孩子自己想起来」的步
-  assert.ok(
-    t.steps.every((s) => !s.selfInitiated),
-    `${t.id}「${t.name}」属于生活技能，不该有 selfInitiated 步——那样就不是听指令做了`,
-  );
+  // 生活技能一般是成人一句指令启动的。唯一例外是身体信号类目标（如厕表示）——
+  // 成人没法「指令」一个尿意，只能等他表现出来，所以这类只该出现在 infant 段。
+  if (t.steps.some((s) => s.selfInitiated)) {
+    assert.equal(t.band, 'infant', `${t.id}「${t.name}」是 ${t.band} 段，生活技能不该有自发步——那是身体信号类目标才有的`);
+  }
 }
 
 for (const t of problemTargets) {
-  assert.ok(t.steps[0].selfInitiated, `${t.id}「${t.name}」的第 1 步必须是自发启动（先停手），不能靠老师下指令`);
-  const selfCount = t.steps.filter((s) => s.selfInitiated).length;
-  assert.ok(selfCount >= 2, `${t.id} 只有 ${selfCount} 个自发步，解决问题类至少要 2 步是孩子自己想起来的`);
+  const flags = t.steps.map((s) => !!s.selfInitiated);
+  const idx = flags.map((f, i) => (f ? i : -1)).filter((i) => i >= 0);
+  assert.ok(idx.length >= 2, `${t.id} 只有 ${idx.length} 个自发步，解决问题类至少要 2 步是孩子自己想起来的`);
+
+  // 自发步必须连成一段：中间插一条指令，孩子自己启动的节奏就断了，
+  // 后面几步会变成「等指令」而不是接着往下做。
+  // 自发段可以在开头（求助、走散了、突发情况），也可以在后半段——
+  // 「听到不可以」这条是先有指令让他停，再要他自己把手拿开、自己等着不回去。
+  const contiguous = idx.every((v, k) => k === 0 || v === idx[k - 1] + 1);
+  assert.ok(contiguous, `${t.id} 的自发步被引导步打断了，自发的是第 ${idx.map((i) => i + 1).join(',')} 步`);
 
   // 允许整条链全自发（如「开口求助」：一旦给指令，练的就变成「回答老师」而不是「主动求助」），
   // 但这种链的教学启动全靠**老师设置情境**，所以情境必须写进达标线和家庭指导，
   // 否则这条链就是空的——上课没有触发点，孩子永远没机会走到第 1 步。
-  const allSelf = t.steps.every((s) => s.selfInitiated);
-  if (allSelf) {
+  if (idx.length === t.steps.length) {
     assert.match(t.sessionSuccess, /情境/, `${t.id} 全是自发步，达标线必须写清这一节课设几个情境`);
     assert.ok(t.familyGuide.how.length >= 10, `${t.id} 全是自发步，家庭指导必须说清在家怎么造机会`);
-  } else {
-    // 自发步和引导步不能交错。中间插一条指令，孩子自己启动的节奏就断了，
-    // 后面几步会变成「等指令」而不是接着往下做。
-    const lastSelf = Math.max(...t.steps.filter((s) => s.selfInitiated).map((s) => s.order));
-    const firstGuided = Math.min(...t.steps.filter((s) => !s.selfInitiated).map((s) => s.order));
-    assert.ok(lastSelf < firstGuided, `${t.id} 的自发步和引导步交错在第 ${firstGuided} 步，会打断孩子自己的节奏`);
   }
 }
 
@@ -122,13 +152,17 @@ for (const t of CHAIN_TARGETS) {
 }
 
 // ---------------------------------------------------------------------------
-// 二·五、6-12 岁的落点：必须挂到 L 段上
+// 二·五、高段（6-12 岁）的落点：必须挂到 L 段上
 // ---------------------------------------------------------------------------
 
-// 这一版是给 6-12 岁做的，L 段（6-12 岁 · 认知与自理）是这个年龄段的正解。
-// 如果一条 L 段都没对上，说明内容还停在 J 段（3-6 岁），年龄段是白改的。
+// 6-12 岁的正解在 L 段（认知与自理）。如果高段一条 L 段都没对上，
+// 说明内容是拿低段硬凑的，年龄上去但难度没上去。
 const lRefs = CHAIN_TARGETS.filter((t) => t.skillRef?.startsWith('L'));
-assert.ok(lRefs.length >= 2, `6-12 岁这条线至少要 2 条链挂到 L 段，现在只有 ${lRefs.length} 条（${lRefs.map((t) => `${t.id}→${t.skillRef}`).join(', ') || '无'}）`);
+assert.ok(lRefs.length >= 2, `6-12 岁这段至少要 2 条链挂到 L 段，现在只有 ${lRefs.length} 条（${lRefs.map((t) => `${t.id}→${t.skillRef}`).join(', ') || '无'}）`);
+// 反过来，infant 段不该出现 L 段码——那是把高段目标错贴到 0-3 岁
+for (const t of CHAIN_TARGETS.filter((x) => x.band === 'infant')) {
+  assert.ok(!t.skillRef?.startsWith('L'), `${t.id} 是 0-3 岁，不该挂 L 段码（${t.skillRef}）`);
+}
 
 // L 段里最能在 app 里拆成链的两条：收拾书包（L3）和用钱（L2）。
 // 这两个是家长诉求最集中的「能自己上学」「能自己买点东西」，缺一条这个模块就偏了
@@ -333,11 +367,23 @@ for (const g of groups) {
 }
 
 // 辅助函数
-assert.equal(getChainTarget('A1')?.name, '洗手');
+assert.equal(getChainTarget('A5')?.name, '洗手');
+assert.equal(getChainTarget('A1')?.band, 'infant', 'A1 是 0-3 岁段的起点');
 assert.equal(getChainTarget('不存在'), undefined);
 assert.equal(getChainTarget(undefined), undefined);
 assert.equal(suggestNextChain([])?.difficulty, 1, '什么都没稳时推荐最靠前的');
 assert.equal(suggestNextChain(CHAIN_TARGETS.map((t) => t.id)), undefined, '全稳了不该再推荐');
 assert.ok(needsLine(CHAIN_TARGETS[0]).length > 0);
+
+// 按年龄段切片：顺序必须是 infant → preschool → school，空段不返回
+const byBand = targetsByBand();
+assert.deepEqual(byBand.map((g) => g.band), BANDS, '分段顺序必须由易到难');
+assert.equal(byBand.reduce((n, g) => n + g.targets.length, 0), CHAIN_TARGETS.length, '分段后不能丢目标');
+for (const g of byBand) {
+  const ds = g.targets.map((t) => t.difficulty);
+  assert.deepEqual(ds, ds.slice().sort((a, b) => a - b), `${g.band} 段内没按难度升序`);
+}
+// 空段不返回
+assert.deepEqual(targetsByBand(CHAIN_TARGETS.filter((t) => t.band !== 'infant')).map((g) => g.band), ['preschool', 'school']);
 
 console.log(`chainTraining: ${CHAIN_TARGETS.length} 条链 / ${CHAIN_TARGETS.reduce((n, t) => n + t.steps.length, 0)} 步，全部通过`);
