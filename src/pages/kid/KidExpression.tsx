@@ -765,9 +765,11 @@ export function LessonTargetsPage({ module }: { module: LessonModule }) {
                         key={t.id}
                         {...cardProps(
                           t,
+                          // 圆圈里已经是本场景难度了，这里再写一遍同一个数字就是重复。
+                          // 只在「场景难度 ≠ 全表台阶」时补一个全表值，两个数字各有各的用。
                           tunedSceneDifficulty(t, scene, tuning) === t.difficulty
                             ? undefined
-                            : `本场景难度 ${tunedSceneDifficulty(t, scene, tuning)}`,
+                            : `全表 ${t.difficulty}`,
                         )}
                       />
                     ))}
@@ -798,9 +800,7 @@ export function LessonTargetsPage({ module }: { module: LessonModule }) {
                           {...cardProps(
                             t,
                             `主场在 ${settingMeta(t.settings[0]).label}${
-                              tunedSceneDifficulty(t, scene, tuning) === t.difficulty
-                                ? ''
-                                : ` · 难度 ${tunedSceneDifficulty(t, scene, tuning)}`
+                              tunedSceneDifficulty(t, scene, tuning) === t.difficulty ? '' : ` · 全表 ${t.difficulty}`
                             }`,
                           )}
                         />
