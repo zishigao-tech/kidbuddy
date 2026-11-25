@@ -25,11 +25,25 @@ function installLocalStorage() {
 
 installLocalStorage();
 
-const targetsUrl = toDataUrl(await readFile(new URL('./expressionTargets.ts', import.meta.url), 'utf8'));
-const dttUrl = toDataUrl(await readFile(new URL('./dtt.ts', import.meta.url), 'utf8'));
+// kidExpression 现在多了一层依赖：kidExpression → chainRecord → chainTargets / chainTraining。
+// data url 里解析不了相对路径，所以逐层把 import 换成上一层转好的 data url。
+const urlOf = async (name) => toDataUrl(await readFile(new URL(`./${name}`, import.meta.url), 'utf8'));
+
+const targetsUrl = await urlOf('expressionTargets.ts');
+const dttUrl = await urlOf('dtt.ts');
+const chainTrainingUrl = await urlOf('chainTraining.ts');
+const chainTargetsUrl = await urlOf('chainTargets.ts');
+
+const chainRecordUrl = toDataUrl(
+  (await readFile(new URL('./chainRecord.ts', import.meta.url), 'utf8'))
+    .replace("from './chainTraining'", `from '${chainTrainingUrl}'`)
+    .replace("from './chainTargets'", `from '${chainTargetsUrl}'`),
+);
+
 const source = (await readFile(new URL('./kidExpression.ts', import.meta.url), 'utf8'))
   .replace("from './expressionTargets'", `from '${targetsUrl}'`)
-  .replace("from './dtt'", `from '${dttUrl}'`);
+  .replace("from './dtt'", `from '${dttUrl}'`)
+  .replace("from './chainRecord'", `from '${chainRecordUrl}'`);
 const mod = await import(toDataUrl(source));
 const targets = await import(targetsUrl);
 
@@ -324,5 +338,63 @@ const session = (over) => ({
   const allSkipped = made.map((r) => ({ ...r, skipped: true, achievement: null, outcome: undefined }));
   assert.equal(mod.suggestScore(allSkipped), null, '一题没判就返回 null，不能给 0 分');
 }
+
+// ---------------------------------------------------------------------------
+// 链式课（生活技能 / 解决问题）走同一个 session，靠 runs 区分
+// ---------------------------------------------------------------------------
+
+// A5 洗手第 7–9 步，反向链 mastered=2。这三步都独立完成，第 7 步给了口头提示。
+const chainSteps = [
+  { order: 7, promptLevel: 'verbal', done: true },
+  { order: 8, promptLevel: 'independent', done: true },
+  { order: 9, promptLevel: 'independent', done: true },
+];
+const chainSession = {
+  id: 'chain-1',
+  student: '小明',
+  date: '2026-11-26',
+  sessionNo: 1,
+  topic: '洗手',
+  targetId: 'A5',
+  by: '教师',
+  rounds: [],
+  score: 2,
+  threeLines: { did: '（应由程序生成）', achieved: '', stuck: '' },
+  highlight: '',
+  nextStep: '',
+  createdAt: Date.now(),
+  runs: [{ mode: 'backward', mastered: 2, steps: chainSteps }],
+};
+
+const chainMd = mod.buildSessionMarkdown(chainSession);
+// 链式课不该出现 DTT 的那两块
+assert.doesNotMatch(chainMd, /学生原话样本/, '链式课没有「题」，不该出现原话样本');
+assert.doesNotMatch(chainMd, /\| 编号 \| 目标 \| 本次观察到的表现 \| 得分 \|/, '链式课不该用 DTT 的达成表');
+// 该出现的
+assert.match(chainMd, /课堂记录（三行）/);
+assert.match(chainMd, /目标达成（按步骤）/);
+assert.match(chainMd, /\| 7 \| 冲干净 \| 提示 \|/, '矩阵要按步列出辅助等级');
+assert.match(chainMd, /按最后一遍的独立完成步数占比算/, '得分口径要写明链式课的算法');
+// 三行由程序生成，不用 session.threeLines 里那份
+assert.doesNotMatch(chainMd, /应由程序生成/);
+
+// meta 块只能有固定几个 key：rebuild_index.py 见到未知 key 会走兜底分支
+const metaBlock = chainMd.split('-->')[0];
+assert.match(metaBlock, /targets: A5/);
+assert.doesNotMatch(metaBlock, /runs:/, 'runs 不能进 meta，会破坏索引脚本');
+
+// 链路被删掉时退回 DTT 格式，旧记录照样能导出，不能整节课打不开
+const orphan = mod.buildSessionMarkdown({ ...chainSession, targetId: '已删除的链' });
+assert.match(orphan, /学生原话样本/, '链不存在时应退回 DTT 格式');
+
+// normalizeBook 要能认 runs，并且清不干净时不留空数组
+const book = mod.normalizeBook({
+  sessions: [
+    chainSession,
+    { ...chainSession, id: 'chain-2', runs: [{ mode: '乱写', mastered: 0, steps: [] }] },
+  ],
+});
+assert.equal(book.sessions[0].runs.length, 1, '合法的 runs 要留下');
+assert.equal(book.sessions[1].runs, undefined, '全是脏数据的 runs 要整组丢掉，不留空数组');
 
 console.log('PASS kidExpression');
