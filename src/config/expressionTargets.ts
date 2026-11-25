@@ -1145,7 +1145,9 @@ export const EXPRESSION_TARGETS: ExpressionTarget[] = [
     name: '拒绝与索回',
     band: 'school',
     difficulty: 8,
-    settings: ['home', 'floor'],
+    // 桌面是后补的：t6「借走他的橡皮／铅笔」、t8「挪走椅子」本来就发生在桌前，
+    // 之前只写了居家和地面，题级标签一标就露了。主场仍是居家。
+    settings: ['home', 'floor', 'desk'],
     modality: 'expressive',
     domain: '语言表达',
     summary: '不想给就说「不要」，东西被拿走就说「还给我」',
@@ -1509,7 +1511,9 @@ export const EXPRESSION_TARGETS: ExpressionTarget[] = [
     name: '电话说清三要素',
     band: 'school',
     difficulty: 11,
-    settings: ['home', 'desk'],
+    // 户外是后补的：t8「到邻居家借一样东西，当面说清楚」必须真出门，
+    // 在教室里演不出来。主场仍是居家。
+    settings: ['home', 'desk', 'outdoor'],
     modality: 'expressive',
     domain: '语言表达',
     summary: '电话或当面对别人说清「我是谁、我在哪、我需要什么」',

@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useState, type MouseEvent } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { lockLessonArea } from '@/config/lessonGate';
 import {
@@ -16,6 +16,18 @@ import {
   type ExpressionTarget,
   type SettingId,
 } from '@/config/expressionTargets';
+import {
+  clearAll,
+  isTargetTuned,
+  loadTuning,
+  saveTuning,
+  setDifficulty,
+  setSceneDifficulty,
+  tunedDifficulty,
+  tunedSceneDifficulty,
+  type TuningBook,
+} from '@/config/targetTuning';
+import { sceneLoad } from '@/config/taskScenes';
 import {
   SCORE_LABEL,
   STABILITY_LABEL,
@@ -102,6 +114,92 @@ const tierStyle: Record<ExpressionTier, string> = {
   挑战: 'bg-violet-50 text-violet-700',
 };
 
+/**
+ * 卡片上的「调难度」。
+ *
+ * 点数字旁边的小按钮展开，− / + 一次挪一格，调过以后显示原值和「恢复」。
+ * 为什么不做成弹窗：老师是看着整个列表调的，弹窗一挡就看不见「调完插到哪去了」，
+ * 只能在卡片里原地展开。
+ *
+ * 为什么按钮要 stopPropagation：整张卡是一个覆盖层 Link（点哪都能进练习台），
+ * 不拦住的话点「+」会直接跳走。
+ */
+function DifficultyStepper({
+  step,
+  base,
+  tuned,
+  sceneLabel,
+  onSet,
+  onReset,
+}: {
+  step: number;
+  base: number;
+  tuned: boolean;
+  sceneLabel: string;
+  onSet: (value: number) => void;
+  onReset: () => void;
+}) {
+  const stop = (e: MouseEvent<HTMLButtonElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+  };
+  return (
+    <div
+      data-testid="difficulty-stepper"
+      className="pointer-events-auto flex flex-wrap items-center gap-2 rounded-2xl bg-slate-50 px-3 py-2"
+    >
+      <span className="text-xs font-bold text-slate-500">{sceneLabel}难度</span>
+      <div className="flex items-center overflow-hidden rounded-xl border-2 border-slate-200 bg-white">
+        <button
+          type="button"
+          data-testid="difficulty-minus"
+          aria-label="调容易一级"
+          onClick={(e) => {
+            stop(e);
+            onSet(step - 1);
+          }}
+          className="h-12 w-12 text-lg font-extrabold text-slate-600 transition hover:bg-slate-100"
+        >
+          −
+        </button>
+        <span className="w-9 text-center text-base font-extrabold text-slate-800">{step}</span>
+        <button
+          type="button"
+          data-testid="difficulty-plus"
+          aria-label="调难一级"
+          onClick={(e) => {
+            stop(e);
+            onSet(step + 1);
+          }}
+          className="h-12 w-12 text-lg font-extrabold text-slate-600 transition hover:bg-slate-100"
+        >
+          +
+        </button>
+      </div>
+      {tuned ? (
+        <>
+          <span data-testid="difficulty-origin" className="text-xs font-bold text-slate-400">
+            原 {base}
+          </span>
+          <button
+            type="button"
+            data-testid="difficulty-reset"
+            onClick={(e) => {
+              stop(e);
+              onReset();
+            }}
+            className="h-12 rounded-xl bg-white px-3 text-xs font-bold text-slate-600 ring-1 ring-slate-200 transition hover:bg-slate-100"
+          >
+            恢复
+          </button>
+        </>
+      ) : (
+        <span className="text-xs text-slate-400">调完自动记住，只影响这一栏</span>
+      )}
+    </div>
+  );
+}
+
 function TargetCard({
   target,
   recommended,
@@ -111,6 +209,12 @@ function TargetCard({
   total,
   accent,
   sceneHint,
+  step,
+  baseStep,
+  tuned,
+  scene,
+  taskCount,
+  onTune,
 }: {
   target: ExpressionTarget;
   recommended: boolean;
@@ -120,97 +224,176 @@ function TargetCard({
   total: number;
   accent: LessonModule['accent'];
   sceneHint?: string;
+  /** 当前上下文显示在第几个台阶（场景筛选时是场景难度，否则是全表台阶） */
+  step: number;
+  /** 配置里的原值，调过以后用来对照 */
+  baseStep: number;
+  /** 老师动过没有 */
+  tuned: boolean;
+  /** 当前筛选的场景，null = 全部场景（这时调的是全表台阶） */
+  scene: SettingId | null;
+  /** 本场景题量，只在场景筛选时给 */
+  taskCount?: { inScene: number; total: number };
+  onTune: (value: number | null) => void;
 }) {
   const stat = targetStat(book, student, target.id);
   const tier = tierOf(target.difficulty);
   const st = statusStyle[stat.status];
+  const [open, setOpen] = useState(false);
+  const sceneLabel = scene ? `${settingMeta(scene).label}上` : '全表';
 
   return (
-    <Link
-      to={`${basePath}/${target.id}`}
+    <div
       data-testid={`expression-target-${target.id}`}
-      className={`flex flex-col gap-3 rounded-[28px] border-2 bg-white p-4 shadow-sm transition hover:shadow-md active:scale-[0.99] ${
+      className={`relative flex flex-col gap-3 rounded-[28px] border-2 bg-white p-4 shadow-sm transition hover:shadow-md ${
         recommended ? `${accent.ring} ring-4 ${accent.soft}` : 'border-slate-100 hover:border-slate-200'
       }`}
     >
-      {/* 顶行：难度台阶 + 名称 + ID + 状态 */}
-      <div className="flex items-start justify-between gap-2">
-        <div className="flex min-w-0 items-center gap-2.5">
-          <span
-            data-testid={`expression-step-${target.id}`}
-            title={`全表第 ${target.difficulty} 级（共 ${total} 个目标），数字越小越容易`}
-            className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full ${accent.solid} text-sm font-extrabold text-white shadow-sm`}
-          >
-            {target.difficulty}
-          </span>
-          <div className="min-w-0">
-            <div className="flex flex-wrap items-baseline gap-1.5">
-              <span className="text-lg font-extrabold text-slate-800">{target.name}</span>
-              <span className="font-mono text-xs font-bold text-slate-400">{target.id}</span>
+      {/*
+        整卡可点靠这层覆盖 Link；内容层设 pointer-events-none 让点击穿透过去，
+        里面的按钮再单独 pointer-events-auto 接回来。
+        不用「Link 包内容 + 按钮 stopPropagation」，因为 <a> 里嵌 <button> 是无效结构。
+      */}
+      <Link
+        to={`${basePath}/${target.id}`}
+        aria-label={`开始练 ${target.name}`}
+        className="absolute inset-0 z-0 rounded-[28px]"
+      />
+
+      <div className="pointer-events-none relative z-10 flex flex-col gap-3">
+        {/* 顶行：难度台阶 + 名称 + ID + 状态 */}
+        <div className="flex items-start justify-between gap-2">
+          <div className="flex min-w-0 items-center gap-2.5">
+            <span
+              data-testid={`expression-step-${target.id}`}
+              data-tuned={tuned ? 'true' : 'false'}
+              title={
+                scene
+                  ? `${settingMeta(scene).label}上第 ${step} 级（全表台阶 ${target.difficulty}），数字越小越容易`
+                  : `全表第 ${step} 级（共 ${total} 个目标），数字越小越容易`
+              }
+              className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-sm font-extrabold text-white shadow-sm ${
+                tuned ? `${accent.solid} ring-2 ring-offset-2 ring-amber-300` : accent.solid
+              }`}
+            >
+              {step}
+            </span>
+            <div className="min-w-0">
+              <div className="flex flex-wrap items-baseline gap-1.5">
+                <span className="text-lg font-extrabold text-slate-800">{target.name}</span>
+                <span className="font-mono text-xs font-bold text-slate-400">{target.id}</span>
+                {tuned && (
+                  <span
+                    data-testid={`step-tuned-${target.id}`}
+                    className="rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-extrabold text-amber-700"
+                  >
+                    调过
+                  </span>
+                )}
+              </div>
             </div>
           </div>
-        </div>
-        <span className={`inline-flex shrink-0 items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-bold ${st.badge}`}>
-          <span className={`h-1.5 w-1.5 rounded-full ${st.dot}`} aria-hidden />
-          {STABILITY_LABEL[stat.status]}
-        </span>
-      </div>
-
-      {/* 中部：简介 + 通道/等级/里程碑元信息 */}
-      <div className="space-y-2">
-        <p className="text-sm leading-snug text-slate-600">{target.summary}</p>
-        <div className="flex flex-wrap items-center gap-1.5">
-          <span
-            data-testid={`expression-modality-${target.id}`}
-            title={target.modality === 'receptive' ? '听者反应：看动作对不对，不要求开口' : '表达：要把话说出来'}
-            className={`rounded-lg px-2 py-0.5 text-xs font-bold ${
-              target.modality === 'receptive'
-                ? 'bg-teal-50 text-teal-700 ring-1 ring-teal-200'
-                : 'bg-slate-100 text-slate-600'
-            }`}
-          >
-            {target.modality === 'receptive' ? '👂 ' : '🗣️ '}
-            {MODALITY_LABEL[target.modality]}
+          <span className={`inline-flex shrink-0 items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-bold ${st.badge}`}>
+            <span className={`h-1.5 w-1.5 rounded-full ${st.dot}`} aria-hidden />
+            {STABILITY_LABEL[stat.status]}
           </span>
-          <span className={`rounded-full px-2 py-0.5 text-xs font-bold ${tierStyle[tier]}`}>{tier}</span>
-          {sceneHint && (
+        </div>
+
+        {/* 中部：简介 + 通道/等级/里程碑元信息 */}
+        <div className="space-y-2">
+          <p className="text-sm leading-snug text-slate-600">{target.summary}</p>
+          <div className="flex flex-wrap items-center gap-1.5">
             <span
-              data-testid={`scene-tag-${target.id}`}
-              className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-bold text-slate-500"
-              title={target.settings.map((id) => settingMeta(id).label).join(' / ')}
+              data-testid={`expression-modality-${target.id}`}
+              title={target.modality === 'receptive' ? '听者反应：看动作对不对，不要求开口' : '表达：要把话说出来'}
+              className={`rounded-lg px-2 py-0.5 text-xs font-bold ${
+                target.modality === 'receptive'
+                  ? 'bg-teal-50 text-teal-700 ring-1 ring-teal-200'
+                  : 'bg-slate-100 text-slate-600'
+              }`}
             >
-              {sceneHint}
+              {target.modality === 'receptive' ? '👂 ' : '🗣️ '}
+              {MODALITY_LABEL[target.modality]}
             </span>
-          )}
-          <span
-            data-testid={`expression-vbmapp-${target.id}`}
-            className="rounded-full bg-violet-50 px-2 py-0.5 text-xs font-bold text-violet-700"
-            title={target.vbMapp.milestone}
-          >
-            VB-MAPP {target.vbMapp.tag}
-          </span>
+            <span className={`rounded-full px-2 py-0.5 text-xs font-bold ${tierStyle[tier]}`}>{tier}</span>
+            {sceneHint && (
+              <span
+                data-testid={`scene-tag-${target.id}`}
+                className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-bold text-slate-500"
+                title={target.settings.map((id) => settingMeta(id).label).join(' / ')}
+              >
+                {sceneHint}
+              </span>
+            )}
+            {taskCount && (
+              <span
+                data-testid={`task-count-${target.id}`}
+                className={`rounded-full px-2 py-0.5 text-xs font-bold ${
+                  taskCount.inScene === 0
+                    ? 'bg-amber-50 text-amber-700 ring-1 ring-amber-200'
+                    : 'bg-slate-100 text-slate-600'
+                }`}
+                title={`题库共 ${taskCount.total} 道，其中 ${taskCount.inScene} 道是${sceneLabel}专属；不够一节时会从别的场景借，界面上会说清借了几道`}
+              >
+                {taskCount.inScene === 0 ? '本场景无专属题' : `本场景 ${taskCount.inScene}/${taskCount.total} 题`}
+              </span>
+            )}
+            <span
+              data-testid={`expression-vbmapp-${target.id}`}
+              className="rounded-full bg-violet-50 px-2 py-0.5 text-xs font-bold text-violet-700"
+              title={target.vbMapp.milestone}
+            >
+              VB-MAPP {target.vbMapp.tag}
+            </span>
+          </div>
         </div>
-      </div>
 
-      {/* 底部：成绩条 + 2分标准 + 开始引导 */}
-      <div className="mt-auto space-y-2 pt-1">
-        <div className="flex flex-wrap items-center gap-2 rounded-2xl bg-slate-50/90 px-3 py-2">
-          <ScoreChip score={stat.last} />
-          <span className="text-xs font-semibold text-slate-500">已练 {stat.attempts} 次</span>
-          <span className="ml-auto truncate text-xs text-slate-400">{historyLine(stat)}</span>
-        </div>
-        <div className="flex items-center justify-between gap-2">
-          <span className="line-clamp-1 min-w-0 flex-1 text-xs text-slate-400">2 分标准：{target.standard2}</span>
-          <span
-            className={`shrink-0 rounded-full px-3.5 py-1.5 text-xs font-extrabold ${
-              recommended ? `${accent.solid} text-white shadow-sm` : `${accent.soft} ${accent.textStrong}`
-            }`}
-          >
-            {recommended ? '建议先练 →' : '开始 →'}
-          </span>
+        {/* 底部：成绩条 + 2分标准 + 开始引导 */}
+        <div className="mt-auto space-y-2 pt-1">
+          <div className="flex flex-wrap items-center gap-2 rounded-2xl bg-slate-50/90 px-3 py-2">
+            <ScoreChip score={stat.last} />
+            <span className="text-xs font-semibold text-slate-500">已练 {stat.attempts} 次</span>
+            <span className="ml-auto truncate text-xs text-slate-400">{historyLine(stat)}</span>
+          </div>
+          <div className="flex items-center justify-between gap-2">
+            <span className="line-clamp-1 min-w-0 flex-1 text-xs text-slate-400">2 分标准：{target.standard2}</span>
+            <button
+              type="button"
+              data-testid={`tune-${target.id}`}
+              aria-expanded={open}
+              aria-label={`调整 ${target.name} 的难度`}
+              title={`调整${sceneLabel}难度`}
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                setOpen((v) => !v);
+              }}
+              className="pointer-events-auto flex h-12 shrink-0 items-center gap-1 rounded-xl bg-white px-2.5 text-xs font-bold text-slate-500 ring-1 ring-slate-200 transition hover:bg-slate-50"
+            >
+              <span aria-hidden>⚙</span>
+              调
+            </button>
+            <span
+              className={`shrink-0 rounded-full px-3.5 py-1.5 text-xs font-extrabold ${
+                recommended ? `${accent.solid} text-white shadow-sm` : `${accent.soft} ${accent.textStrong}`
+              }`}
+            >
+              {recommended ? '建议先练 →' : '开始 →'}
+            </span>
+          </div>
+          {open && (
+            <DifficultyStepper
+              step={step}
+              base={baseStep}
+              tuned={tuned}
+              sceneLabel={sceneLabel}
+              onSet={onTune}
+              onReset={() => onTune(null)}
+            />
+          )}
         </div>
       </div>
-    </Link>
+    </div>
   );
 }
 
@@ -230,6 +413,27 @@ export function LessonTargetsPage({ module }: { module: LessonModule }) {
   const [stage, setStage] = useState<ExpressionBand | 'all'>(() => readStage(scope));
   const [scene, setScene] = useState<SettingId | 'all'>(() => readScene(scope));
   const [showExtra, setShowExtra] = useState(false);
+  /** 老师手调的难度覆盖，和配置文件分开存：配置是通用口径，这是这个班的顺序 */
+  const [tuning, setTuning] = useState<TuningBook>(() => loadTuning(scope));
+
+  const applyTuning = (next: TuningBook) => {
+    setTuning(next);
+    saveTuning(scope, next);
+  };
+
+  /**
+   * 调难度：在哪一栏调就只影响那一栏。
+   * 筛了场景时调的是这个场景的难度，没筛时调的是全表台阶。
+   */
+  const tuneStep = (target: ExpressionTarget, value: number | null) => {
+    applyTuning(
+      scene === 'all'
+        ? setDifficulty(tuning, target, value)
+        : setSceneDifficulty(tuning, target, scene, value),
+    );
+  };
+
+  const tunedCount = module.targets.filter((t) => isTargetTuned(t, tuning)).length;
 
   const mine = sessionsOf(book, student);
   const stableIds = module.targets
@@ -238,7 +442,20 @@ export function LessonTargetsPage({ module }: { module: LessonModule }) {
   const stableCount = stableIds.length;
   const pendingCount = module.targets.filter((t) => targetStat(book, student, t.id).status === 'pending').length;
   const nextTarget = module.suggestNext(stableIds);
-  const groups = module.stageGroups(stage);
+  /**
+   * 学段顺序（B → G → K）是年龄决定的，不重排；段内顺序跟着老师调过的台阶走。
+   * 用 tunedDifficulty 而不是 target.difficulty，否则调完「全部场景」看不到落位变化。
+   */
+  const groups = useMemo(
+    () =>
+      module.stageGroups(stage).map((group) => ({
+        ...group,
+        targets: [...group.targets].sort(
+          (a, b) => tunedDifficulty(a, tuning) - tunedDifficulty(b, tuning) || a.difficulty - b.difficulty,
+        ),
+      })),
+    [module, stage, tuning],
+  );
   const masteryPct = module.targets.length > 0 ? Math.round((stableCount / module.targets.length) * 100) : 0;
 
   /**
@@ -251,13 +468,15 @@ export function LessonTargetsPage({ module }: { module: LessonModule }) {
     const inScene = module.targets
       .filter((t) => fitsScene(t, scene))
       .filter((t) => stage === 'all' || t.band === stage);
+    // 排序用老师调过的场景难度，调完立刻看到插到哪去了
     const byScene = (a: ExpressionTarget, b: ExpressionTarget) =>
-      sceneDifficulty(a, scene) - sceneDifficulty(b, scene) || a.difficulty - b.difficulty;
+      tunedSceneDifficulty(a, scene, tuning) - tunedSceneDifficulty(b, scene, tuning) ||
+      a.difficulty - b.difficulty;
     return {
       primary: inScene.filter((t) => isPrimaryScene(t, scene)).sort(byScene),
       extra: inScene.filter((t) => !isPrimaryScene(t, scene)).sort(byScene),
     };
-  }, [module.targets, scene, stage]);
+  }, [module.targets, scene, stage, tuning]);
 
   const changeStage = (value: ExpressionBand | 'all') => {
     setStage(value);
@@ -294,6 +513,33 @@ export function LessonTargetsPage({ module }: { module: LessonModule }) {
     } catch {
       /* 忽略 */
     }
+  };
+
+  /**
+   * 卡片的公共 props。
+   * 台阶数字、调过的判断、调的是场景还是全表，全在这一处算——
+   * 三个列表段（主场 / 备选 / 全表分组）共用，避免各处口径跑偏。
+   */
+  const cardProps = (t: ExpressionTarget, sceneHint?: string) => {
+    const activeScene: SettingId | null = scene === 'all' ? null : scene;
+    const step = activeScene ? tunedSceneDifficulty(t, activeScene, tuning) : tunedDifficulty(t, tuning);
+    const baseStep = activeScene ? sceneDifficulty(t, activeScene) : t.difficulty;
+    return {
+      target: t,
+      recommended: nextTarget?.id === t.id,
+      book,
+      student,
+      basePath: module.basePath,
+      total: module.targets.length,
+      accent: module.accent,
+      sceneHint,
+      step,
+      baseStep,
+      tuned: step !== baseStep,
+      scene: activeScene,
+      taskCount: activeScene ? sceneLoad(t.tasks, activeScene) : undefined,
+      onTune: (value: number | null) => tuneStep(t, value),
+    };
   };
 
   return (
@@ -426,11 +672,23 @@ export function LessonTargetsPage({ module }: { module: LessonModule }) {
         {/* 目标列表：训练场景 + 学段，两层筛选 */}
         <div>
           <div className="mb-3 flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
-            <h2 className="text-xl font-extrabold text-slate-800">全部训练目标</h2>
+            <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+              <h2 className="text-xl font-extrabold text-slate-800">全部训练目标</h2>
+              {tunedCount > 0 && (
+                <button
+                  type="button"
+                  data-testid="tuning-reset-all"
+                  onClick={() => applyTuning(clearAll())}
+                  className="h-12 rounded-xl bg-amber-50 px-3 text-xs font-bold text-amber-700 ring-1 ring-amber-200 transition hover:bg-amber-100"
+                >
+                  已手动调整 {tunedCount} 个目标 · 全部恢复
+                </button>
+              )}
+            </div>
             <span className="text-xs font-bold text-slate-400">
               {sceneView
-                ? '按本场景难度由易到难，圆圈数字仍是全表台阶'
-                : '按学段（B → G → K）由易到难，圆圈数字为全表台阶'}
+                ? '按本场景难度由易到难；圆圈数字是本场景难度，点 ⚙ 可调'
+                : '按学段（B → G → K）由易到难；圆圈数字为全表台阶，点 ⚙ 可调'}
             </span>
           </div>
 
@@ -505,18 +763,12 @@ export function LessonTargetsPage({ module }: { module: LessonModule }) {
                     {sceneView.primary.map((t) => (
                       <TargetCard
                         key={t.id}
-                        target={t}
-                        recommended={nextTarget?.id === t.id}
-                        book={book}
-                        student={student}
-                        basePath={module.basePath}
-                        total={module.targets.length}
-                        accent={module.accent}
-                        sceneHint={
-                          sceneDifficulty(t, scene) === t.difficulty
+                        {...cardProps(
+                          t,
+                          tunedSceneDifficulty(t, scene, tuning) === t.difficulty
                             ? undefined
-                            : `本场景难度 ${sceneDifficulty(t, scene)}`
-                        }
+                            : `本场景难度 ${tunedSceneDifficulty(t, scene, tuning)}`,
+                        )}
                       />
                     ))}
                   </div>
@@ -543,18 +795,14 @@ export function LessonTargetsPage({ module }: { module: LessonModule }) {
                       {sceneView.extra.map((t) => (
                         <TargetCard
                           key={t.id}
-                          target={t}
-                          recommended={nextTarget?.id === t.id}
-                          book={book}
-                          student={student}
-                          basePath={module.basePath}
-                          total={module.targets.length}
-                          accent={module.accent}
-                          sceneHint={`主场在 ${settingMeta(t.settings[0]).label}${
-                            sceneDifficulty(t, scene) === t.difficulty
-                              ? ''
-                              : ` · 难度 ${sceneDifficulty(t, scene)}`
-                          }`}
+                          {...cardProps(
+                            t,
+                            `主场在 ${settingMeta(t.settings[0]).label}${
+                              tunedSceneDifficulty(t, scene, tuning) === t.difficulty
+                                ? ''
+                                : ` · 难度 ${tunedSceneDifficulty(t, scene, tuning)}`
+                            }`,
+                          )}
                         />
                       ))}
                     </div>
@@ -579,14 +827,10 @@ export function LessonTargetsPage({ module }: { module: LessonModule }) {
                     {group.targets.map((t) => (
                       <TargetCard
                         key={t.id}
-                        target={t}
-                        recommended={nextTarget?.id === t.id}
-                        book={book}
-                        student={student}
-                        basePath={module.basePath}
-                        total={module.targets.length}
-                        accent={module.accent}
-                        sceneHint={`主场 ${settingMeta(t.settings[0]).emoji}${settingMeta(t.settings[0]).label}`}
+                        {...cardProps(
+                          t,
+                          `主场 ${settingMeta(t.settings[0]).emoji}${settingMeta(t.settings[0]).label}`,
+                        )}
                       />
                     ))}
                   </div>

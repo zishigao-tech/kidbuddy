@@ -133,7 +133,12 @@ assert.match(input, /Space/);
 const exprHome = await read('./KidExpression.tsx');
 assert.match(exprHome, /stageGroups\(/, '目标列表要按学段分组');
 assert.match(exprHome, /expression-step-/, '目标卡要显示台阶编号');
-assert.match(exprHome, /\{target\.difficulty\}/, '台阶编号必须直接用 difficulty');
+assert.match(exprHome, /\{step\}/, '台阶编号要渲染算好的 step，不是字段直出');
+assert.match(
+  exprHome,
+  /tunedSceneDifficulty\(t, activeScene, tuning\) : tunedDifficulty\(t, tuning\)/,
+  '台阶数字来自当前场景难度或全表台阶',
+);
 assert.doesNotMatch(exprHome, /step=\{i \+ 1\}/, '不允许按列表下标重新编号');
 assert.match(exprHome, /stage-filter-/, '要有学段筛选');
 assert.match(exprHome, /\$\{scope\}\.stage/, '学段选择要记住（键挂在模块前缀下）');
@@ -167,7 +172,7 @@ assert.match(exprPlay, /skipped: true/, '跳过要写进记录，不能只是界
 assert.doesNotMatch(exprPlay, /\{!feedbackCorrect && \(\s*<button/, '答对也要能加练一遍');
 
 // 题库轮换：一节只抽 4 道，练过的往后排
-assert.match(exprPlay, /pickSessionTasks/, '练习页要按轮换抽题');
+assert.match(exprPlay, /pickSceneTasks\(/, '练习页要按轮换抽题，且场景优先（pickSceneTasks 内部还是轮换排序）');
 assert.match(exprPlay, /task-pool/, '要显示本节抽到几道 / 题库共几道');
 assert.match(exprPlay, /redraw-tasks/, '要有「换一批」');
 assert.match(exprPlay, /\$\{scope\}\.rotation/, '轮换记录要存本地，不然每次都是同一批');
@@ -205,11 +210,57 @@ assert.match(exprHome, /data-testid="scene-extra-toggle"/, '备选段要能折�
 assert.match(exprHome, /scene-tag-/, '卡片上要标明主场在哪个场景 / 本场景难度');
 assert.match(exprHome, /showExtra/, '折叠要有状态');
 // 场景筛选不能把台阶编号也重排（老坑：按场景重编会出现「4 比 6 难」的错觉）
-assert.match(exprHome, /\{target\.difficulty\}/, '圆圈数字仍用全表台阶');
+assert.match(exprHome, /\{step\}/, '圆圈数字用 step（全表台阶或本场景难度），不许按下标重编');
+assert.match(exprHome, /data-tuned=/, '被老师调过的台阶要有标记，不然调完看不出来');
+
+// 老师手调难度：在哪一栏调就只影响那一栏
+assert.match(exprHome, /data-testid=\{`tune-\$\{target\.id\}`\}/, '每张卡要有调难度入口');
+assert.match(exprHome, /data-testid="difficulty-stepper"/, '调难度在卡片内原地展开，不能弹窗挡住列表');
+assert.match(exprHome, /scene === 'all'\s*\?\s*setDifficulty|setDifficulty\(tuning, target, value\)/, '全表栏调台阶');
+assert.match(exprHome, /setSceneDifficulty\(tuning, target, scene, value\)/, '场景栏调场景难度');
+assert.match(exprHome, /loadTuning\(|saveTuning\(/, '调完要落本地，刷新不丢');
+assert.match(exprHome, /data-testid="tuning-reset-all"/, '要能一键清掉所有调整');
+assert.match(
+  exprHome,
+  /pointer-events-none relative z-10/,
+  '卡片用覆盖层 Link + 穿透内容层，否则按钮点了会跳走',
+);
+
+// 题级场景标签：卡片要显示本场景有几道题
+assert.match(exprHome, /sceneLoad\(t\.tasks, activeScene\)/, '卡片要算本场景题量');
+assert.match(exprHome, /data-testid=\{`task-count-\$\{target\.id\}`\}/, '本场景题量要显示出来');
+// 练习台：场景筛选要传到抽题上，不能筛完进来还是随机抽（exprPlay 在上面已读）
+assert.match(exprPlay, /pickSceneTasks\(/, '按场景抽题：本场景优先，不够再借');
+assert.match(exprPlay, /readScene\(scope\)/, '练习台要读列表页选的场景');
+assert.match(exprPlay, /data-testid="play-scene"/, '练习台要显示这一节在哪个场景');
+assert.match(exprPlay, /pick\.borrowed/, '借了几道题要说出来，别让老师以为是全在地面做的');
+assert.match(exprPlay, /setting: liveScene === 'all' \? undefined : liveScene/, '课堂记录要写场景');
+assert.match(exprPlay, /data-testid="play-step"/, '练习台要显示这一节实际用的难度');
+assert.match(exprPlay, /sceneMixLine\(drawnTasks\)/, '题目分布要能查');
+
 // 场景字段本身
 const targetCfg = await read('../../config/expressionTargets.ts');
 assert.match(targetCfg, /export type SettingId = 'desk' \| 'floor' \| 'home' \| 'outdoor'/);
 assert.match(targetCfg, /export const SETTINGS: SettingMeta\[\]/);
 assert.match(targetCfg, /export function sceneDifficulty/);
+
+// 题级场景标签：标签的真相在 taskScenes.ts，不能写回题库里
+const taskCfg = await read('../../config/taskScenes.ts');
+assert.match(taskCfg, /export const TASK_SCENES: Record<string, SettingId\[\]>/);
+assert.match(taskCfg, /export function pickSceneTasks/);
+assert.match(
+  taskCfg,
+  /export function sceneLoad/,
+  '列表页要能知道本场景够不够一节课',
+);
+assert.match(taskCfg, /export function sceneMixLine/, '记录里要能写出这节课的场景分布');
+
+// 难度覆盖层
+const tuningCfg = await read('../../config/targetTuning.ts');
+assert.match(tuningCfg, /export function tunedDifficulty/);
+assert.match(tuningCfg, /export function tunedSceneDifficulty/);
+assert.match(tuningCfg, /export function setDifficulty/);
+assert.match(tuningCfg, /export function setSceneDifficulty/);
+assert.match(tuningCfg, /\.tuning`, /, '覆盖表要单独一个 storage key，别和课堂记录混在一起');
 
 console.log('kidUi.test.mjs: ok');
