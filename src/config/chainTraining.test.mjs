@@ -69,6 +69,8 @@ for (const t of CHAIN_TARGETS) {
 
   assert.ok(t.needs.length > 0, `${t.id} 要写清楚现场准备什么`);
   assert.ok(t.settings.length > 0, `${t.id} 至少声明一个训练场景`);
+  // 这一版整体对齐 6-12 岁（L 段）。混进 preschool 就说明有一条没跟着改
+  assert.equal(t.band, 'school', `${t.id}「${t.name}」的年龄段应为 school（6-12 岁）`);
   assert.ok(t.sessionRuns >= 1, `${t.id} 的 sessionRuns 至少 1 遍`);
   assert.ok(t.familyGuide?.how && t.familyGuide?.avoid, `${t.id} 的家庭指导要写 how 和 avoid 两条`);
 }
@@ -118,6 +120,26 @@ for (const t of CHAIN_TARGETS) {
     }
   }
 }
+
+// ---------------------------------------------------------------------------
+// 二·五、6-12 岁的落点：必须挂到 L 段上
+// ---------------------------------------------------------------------------
+
+// 这一版是给 6-12 岁做的，L 段（6-12 岁 · 认知与自理）是这个年龄段的正解。
+// 如果一条 L 段都没对上，说明内容还停在 J 段（3-6 岁），年龄段是白改的。
+const lRefs = CHAIN_TARGETS.filter((t) => t.skillRef?.startsWith('L'));
+assert.ok(lRefs.length >= 2, `6-12 岁这条线至少要 2 条链挂到 L 段，现在只有 ${lRefs.length} 条（${lRefs.map((t) => `${t.id}→${t.skillRef}`).join(', ') || '无'}）`);
+
+// L 段里最能在 app 里拆成链的两条：收拾书包（L3）和用钱（L2）。
+// 这两个是家长诉求最集中的「能自己上学」「能自己买点东西」，缺一条这个模块就偏了
+const refSet = new Set(CHAIN_TARGETS.map((t) => t.skillRef));
+assert.ok(refSet.has('L3'), '缺「按课表收拾书包」（L3）——上学刚需');
+assert.ok(refSet.has('L2'), '缺「用钱与找零」（L2）——社区独立刚需');
+assert.ok(refSet.has('L5'), '缺「突发情况第一步」（L5）——安全底线');
+
+// A 组要有 6-12 岁的自理项，不能只剩入门那两条（洗手、穿鞋）
+const schoolAgeSkill = skillTargets.filter((t) => ['刷牙', '淋浴与擦干', '按课表整理书包', '用钱买东西'].includes(t.name));
+assert.ok(schoolAgeSkill.length >= 3, `A 组只有 ${schoolAgeSkill.length} 条 6-12 岁自理链，至少要有 3 条`);
 
 // ---------------------------------------------------------------------------
 // 三、三种排法的分工

@@ -1,11 +1,20 @@
 /**
- * 链式教学 · 目标库（生活技能 / 解决问题）
+ * 链式教学 · 目标库（生活技能 / 解决问题）· 6-12 岁
  *
- * 为什么单独建一套编号（A = 生活自理，P = 解决问题）而不直接沿用 goal-codes.md：
- * skill 里的 E / J / L 段是**单回合目标**（「如厕：白天独立如厕，尿裤子 ≤1 次/周」），
- * 判的是结果；这里一条链是**一串有序动作**，判的是「从第几步开始需要帮」。
+ * 这一版按 skill「课堂记录量化工具」的 **L 段（6-12 岁 · 认知与自理）** 重排：
+ *   L2 用钱与找零 → A5   L3 按课表收拾书包 → A4   L5 突发情况第一步 → P4
+ * K 段（6-12 岁 · 语言表达）对 P 组：
+ *   K2 明确拒绝与索回 → P2   K3 主动求助 → P1
+ *
+ * 洗手、穿鞋这两条是从 J 段（3-6 岁）保留下来当**入门项**的：
+ * 6-12 岁里功能水平偏低的孩子仍然卡在这里，但它们是起点不是终点，
+ * 所以 difficulty 排在最前面，方便老师按能力往下取，不当主推内容。
+ *
+ * 为什么不直接沿用 goal-codes.md 的段位码：
+ * skill 里 L1–L5 是**单回合目标**（「20 元以内独立完成付款与找零核对」），判的是结果；
+ * 这里一条链是**一串有序动作**，判的是「从第几步开始需要帮」。
  * 口径对不上，硬套会让课堂记录和机构汇报两本账。
- * 对照关系写在每条的 skillRef 里，不取代它。
+ * 对照关系写在每条 skillRef 里，不取代它。
  *
  * 拆步骤的三条规矩（写错一条，现场就没法判）：
  *   1. 每步只有一个动作。把「打开水龙头并把手打湿」写成一步，现场不知道该看哪个。
@@ -14,8 +23,8 @@
  *
  * 关于 selfInitiated：
  *   P 组前几步全是自发启动（停手 → 看人 → 开口）。
- *   老师一旦给指令，练的就变成「听指令」而不是「遇到事自己想起来」，
- *   所以在家里换成真实场景时效果会整个塌掉。这几步必须等，不能催。
+ *   老师一旦给指令，练的就变成「听指令做」而不是「遇到事自己想起来」，
+ *   回到家、换到学校就整个塌掉。这几步必须等，不能催。
  *
  * 纯数据 + import type，无运行时依赖，可被 node 单测直接加载。
  */
@@ -30,11 +39,11 @@ const WASH_HANDS: ChainTarget = {
   id: 'A1',
   name: '洗手',
   group: 'skill',
-  band: 'preschool',
+  band: 'school',
   difficulty: 1,
   settings: ['home'],
   summary: '饭前便后不用提醒也能自己走完一遍洗手：从拉袖子到擦干，九步不跳、不半路跑掉。',
-  standard2: '全程 9 步独立完成 ≥2 次/周，中途不离开洗手台，冲净后手上无泡沫残留',
+  standard2: '全程 9 步独立完成 ≥5 次/周，中途不离开洗手台，冲净后手上无泡沫残留',
   onePenalty: '会开水和搓手，但搓手背总要提醒；或冲到一半手一甩就走',
   sessionSuccess: '一节课练 2–3 遍，其中至少 1 遍从第 1 步做到第 9 步没有中途离场',
   skillRef: 'J4',
@@ -108,84 +117,26 @@ const WASH_HANDS: ChainTarget = {
     },
   ],
   familyGuide: {
-    how: '在家把洗手固定在饭前和如厕后两个时点，一次只退一步辅助——这周还在拉袖子，就不要同时要求他自己关水。',
+    how: '把洗手固定在饭前和如厕后两个时点，一次只退一步辅助——这周还在拉袖子，就不要同时要求他自己关水。',
     avoid: '别开着水龙头替他搓。水流声一响，孩子容易只玩水不搓手，后面几步全乱。',
   },
 };
 
-const TIDY_TOYS: ChainTarget = {
-  id: 'A2',
-  name: '收玩具',
-  group: 'skill',
-  band: 'preschool',
-  difficulty: 2,
-  settings: ['floor', 'home'],
-  summary: '听到「收玩具了」能停下来，把地上的玩具一件件放进筐，直到地面看不见玩具。',
-  standard2: '听到指令后 5 分钟内独立收完，地面无残留，不需逐件提示',
-  onePenalty: '收了三五件就开始玩；或每一件都要指一次才捡',
-  sessionSuccess: '一节课练 2 遍，其中 1 遍从头收到尾，中间不多于 2 次提醒',
-  skillRef: 'J4',
-  defaultMode: 'total',
-  sessionRuns: 2,
-  needs: ['玩具筐或收纳箱', '地垫上摊开的玩具（8–15 件）'],
-  steps: [
-    {
-      order: 1,
-      name: '停手',
-      sd: '收玩具了',
-      criterion: '手上动作停下，看向成人，持续 ≥2 秒',
-      hint: '叫名字 / 挡一下他手上的玩具 / 手把手把玩具放下',
-    },
-    {
-      order: 2,
-      name: '找到筐',
-      sd: '筐在哪',
-      criterion: '眼睛看向筐、手指向筐，或直接走过去',
-      hint: '指一下筐 / 说「筐在柜子旁边」',
-    },
-    {
-      order: 3,
-      name: '捡一件',
-      sd: '捡起来',
-      criterion: '弯腰捡起一件玩具，握在手里',
-      hint: '指着具体一件说「先收这个」 / 手把手捡',
-    },
-    {
-      order: 4,
-      name: '放进筐',
-      sd: '放进去',
-      criterion: '松手让玩具落进筐内，不掉在筐外',
-      hint: '指一下筐 / 手把手放进去',
-    },
-    {
-      order: 5,
-      name: '环视检查',
-      sd: '还有吗',
-      criterion: '自己转头看一圈地面，没有玩具才走开',
-      hint: '指一下还剩的 / 说「那边还有一个」',
-    },
-  ],
-  familyGuide: {
-    how: '把玩具量控制在 8–15 件。太多会变成「永远收不完」，孩子收一半就放弃不是态度问题，是量的问题。',
-    avoid: '别一边说「收玩具」一边自己动手收。你收得比他快，他就学会等。',
-  },
-};
-
 const PUT_ON_SHOES: ChainTarget = {
-  id: 'A3',
+  id: 'A2',
   name: '穿鞋',
   group: 'skill',
-  band: 'preschool',
-  difficulty: 3,
+  band: 'school',
+  difficulty: 2,
   settings: ['home', 'outdoor'],
-  summary: '出门前自己坐到椅子上，把两只脚伸进鞋、提上后跟、粘好粘扣，不用抱着脚塞。',
-  standard2: '两只鞋独立穿好并粘牢，左右不反，全程 ≤3 分钟',
+  summary: '出门前自己坐到椅子上，把两只脚伸进鞋、提上后跟、粘好粘扣，不用弯腰抱着脚塞半天。',
+  standard2: '两只鞋独立穿好并粘牢，左右不反，全程 ≤2 分钟，不需提醒',
   onePenalty: '会伸脚不会提后跟；或粘扣粘反、粘一半就站起来',
   sessionSuccess: '一节课练 3 遍，其中至少 1 遍两只鞋都不用手把手',
   skillRef: 'J3',
   defaultMode: 'backward',
   sessionRuns: 3,
-  needs: ['一双粘扣鞋（别用系带）', '门口的小椅子或垫子'],
+  needs: ['一双粘扣鞋（系带单列，别混着练）', '门口的小椅子或垫子'],
   steps: [
     {
       order: 1,
@@ -198,7 +149,7 @@ const PUT_ON_SHOES: ChainTarget = {
       order: 2,
       name: '拿对鞋',
       sd: '拿你的鞋',
-      criterion: '把两只鞋都拿到手边，不分左右先不论',
+      criterion: '把两只鞋都拿到手边，先不论左右',
       hint: '指一下鞋 / 说「在门口」',
     },
     {
@@ -229,6 +180,286 @@ const PUT_ON_SHOES: ChainTarget = {
   },
 };
 
+const BRUSH_TEETH: ChainTarget = {
+  id: 'A3',
+  name: '刷牙',
+  group: 'skill',
+  band: 'school',
+  difficulty: 3,
+  settings: ['home'],
+  summary: '早晚自己完成一遍刷牙：挤牙膏、刷外面刷里面、漱口、冲牙刷、放回原位，不用人站在旁边盯。',
+  standard2: '早晚各一次，7 步独立完成，全程 ≥90 秒，刷到里面不跳过',
+  onePenalty: '会刷外面不会刷里面；或漱口水直接咽下去、牙刷冲两下就扔回杯子',
+  sessionSuccess: '一节课练 2 遍，其中 1 遍从拿牙刷到放回杯子独立走完',
+  defaultMode: 'backward',
+  sessionRuns: 2,
+  needs: ['自己的牙刷与杯子', '牙膏', '洗手台', '一面能看到嘴的镜子'],
+  steps: [
+    {
+      order: 1,
+      name: '拿牙刷',
+      sd: '拿牙刷',
+      criterion: '从自己的杯子里取出牙刷，不拿错别人的',
+      hint: '指一下杯子 / 说「你的在蓝色那个」',
+    },
+    {
+      order: 2,
+      name: '挤牙膏',
+      sd: '挤牙膏',
+      criterion: '挤出黄豆大小到刷毛上，没有挤到手上或台面上',
+      hint: '示范挤一次 / 扶着他的手挤',
+    },
+    {
+      order: 3,
+      name: '刷外面',
+      sd: '刷外面',
+      criterion: '刷毛贴住牙面来回刷 ≥15 秒，上下排都刷到',
+      hint: '自己刷给他看 / 说「上面刷刷，下面刷刷」',
+    },
+    {
+      order: 4,
+      name: '刷里面',
+      sd: '里面也刷',
+      criterion: '刷毛转到牙齿内侧刷 ≥15 秒，张嘴配合',
+      hint: '示范内侧刷 / 说「张开嘴」',
+    },
+    {
+      order: 5,
+      name: '漱口',
+      sd: '漱口',
+      criterion: '含水漱 ≥3 次并吐出，没有咽下去',
+      hint: '示范吐水 / 说「吐到池子里」',
+    },
+    {
+      order: 6,
+      name: '冲牙刷',
+      sd: '冲一下',
+      criterion: '牙刷在水流下冲净，刷毛上看不到泡沫',
+      hint: '指一下水流 / 说「还有泡泡」',
+    },
+    {
+      order: 7,
+      name: '放回杯子',
+      sd: '放回去',
+      criterion: '牙刷头朝上放回自己的杯子，不横倒在台面上',
+      hint: '指一下杯子 / 示范头朝上',
+    },
+  ],
+  familyGuide: {
+    how: '早晚两次固定在起床后和睡前，用同一句开场话。刷牙靠的是流程固定，不是每天提醒。',
+    avoid: '别因为赶时间就替他刷。刷里面最容易被跳过，一旦默许「刷外面就行」，这条就练不成。',
+  },
+};
+
+const PACK_SCHOOLBAG: ChainTarget = {
+  id: 'A4',
+  name: '按课表整理书包',
+  group: 'skill',
+  band: 'school',
+  difficulty: 4,
+  settings: ['desk', 'home'],
+  summary: '照着第二天的课表，把书、作业、文具一样样装进书包，最后对一遍不漏东西。',
+  standard2: '5 分钟内独立备齐当天用品，遗漏 ≤1 项，不需口头提醒看课表',
+  onePenalty: '会把书塞进包，但不看课表；或装完不检查，第二天到校发现缺作业',
+  sessionSuccess: '一节课练 2 遍，其中 1 遍不看课表也能按科目找齐（说明课表已内化）',
+  skillRef: 'L3',
+  defaultMode: 'total',
+  sessionRuns: 2,
+  needs: ['打印的课表或手机课表', '书包', '书架或抽屉（书按科目分开放）', '铅笔盒与作业本'],
+  steps: [
+    {
+      order: 1,
+      name: '看课表',
+      sd: '看课表',
+      criterion: '拿到课表或打开课表，视线落在上面 ≥2 秒',
+      hint: '指一下课表 / 把课表推到他面前',
+    },
+    {
+      order: 2,
+      name: '说带什么',
+      sd: '明天要带什么',
+      criterion: '说出至少 2 个科目名或物品名',
+      hint: '指课表第一行 / 问「第一节是什么课」',
+    },
+    {
+      order: 3,
+      name: '找书',
+      sd: '把书找出来',
+      criterion: '从书架取出对应科目的书 ≥2 本，放在桌上',
+      hint: '说出科目名 / 指一下书架位置',
+    },
+    {
+      order: 4,
+      name: '装进书包',
+      sd: '装进去',
+      criterion: '书本平放进主袋，不折角、不硬塞',
+      hint: '撑开书包口 / 手把手放进去',
+    },
+    {
+      order: 5,
+      name: '装文具和作业',
+      sd: '文具和作业呢',
+      criterion: '铅笔盒和当天作业本都进包',
+      hint: '指一下桌面 / 说「作业在桌上」',
+    },
+    {
+      order: 6,
+      name: '对一遍',
+      sd: '再对一遍',
+      criterion: '对着课表逐项指认，自己发现遗漏并补上',
+      hint: '指着课表问「这个带了吗」',
+      optional: true, // 时间紧时可跳过，但跳过要在记录里标出来
+    },
+  ],
+  familyGuide: {
+    how: '把整理书包固定在睡前最后一个环节，课表贴在书桌上方。前几天带着对一遍，之后只在对完之后检查。',
+    avoid: '别在孩子装完之后偷偷补漏。补了他永远不知道自己漏了什么，「对一遍」这一步就废了。',
+  },
+};
+
+const BUY_THING: ChainTarget = {
+  id: 'A5',
+  name: '用钱买东西',
+  group: 'skill',
+  band: 'school',
+  difficulty: 5,
+  settings: ['outdoor', 'home'],
+  summary: '在便利店自己完成一次买东西：想好买什么、看价格、数够不够、递钱、接找零、拿上东西走。',
+  standard2: '20 元以内独立完成付款与找零核对，连续 3 次中 ≥2 次正确',
+  onePenalty: '会递钱不会等找零；或钱一递就跑开，东西忘了拿',
+  sessionSuccess: '一节课在真实便利店完成 2 次，其中 1 次全程不用提示',
+  skillRef: 'L2',
+  defaultMode: 'forward',
+  sessionRuns: 2,
+  needs: ['10 元与 1 元纸币或硬币若干', '一间便利店（避开排队高峰）', '事先和店员打过招呼'],
+  steps: [
+    {
+      order: 1,
+      name: '想好买什么',
+      sd: '想买什么',
+      criterion: '指出或说出一样具体的东西，不换来换去',
+      hint: '问「你要哪一个」 / 给两个选项',
+    },
+    {
+      order: 2,
+      name: '看价格',
+      sd: '多少钱',
+      criterion: '读出价签上的数字，或明确指向价签',
+      hint: '指一下价签 / 说「上面写着几」',
+    },
+    {
+      order: 3,
+      name: '数钱够不够',
+      sd: '钱够不够',
+      criterion: '数出金额并说出「够」或「不够」，判断正确',
+      hint: '帮他数 / 问「一张十块够吗」',
+    },
+    {
+      order: 4,
+      name: '递钱',
+      sd: '把钱给他',
+      criterion: '钱递到店员手上或柜台上，没有扔',
+      hint: '示范递 / 扶着他的手递过去',
+    },
+    {
+      order: 5,
+      name: '接找零',
+      sd: '等找钱',
+      criterion: '接过找零放进钱包或口袋，没有落在柜台上',
+      hint: '说「等一下，还有钱」 / 指一下找零',
+    },
+    {
+      order: 6,
+      name: '拿东西走',
+      sd: '拿上东西',
+      criterion: '拿齐买的物品再离开柜台',
+      hint: '指一下袋子 / 说「东西还没拿」',
+    },
+  ],
+  familyGuide: {
+    how: '先从「只买一样、钱数正好不用找零」开始；稳了再加找零，最后才加自己挑。三步分开练，别一次全上。',
+    avoid: '别在人多的时段练。排队一催，孩子会被推着走完流程，学不到东西，还容易被吓退。',
+  },
+};
+
+const SHOWER: ChainTarget = {
+  id: 'A6',
+  name: '淋浴与擦干',
+  group: 'skill',
+  band: 'school',
+  difficulty: 6,
+  settings: ['home'],
+  summary: '自己完成一次淋浴：脱衣归位、试水温、淋湿、打沐浴露、冲净、关水、擦干、穿好睡衣。',
+  standard2: '8 步独立完成，水温自己试过再站进去，出浴室时身上擦到不滴水',
+  onePenalty: '会冲水不会搓；或洗完不擦干就穿衣服，头发滴着水出来',
+  sessionSuccess: '一节课练 1 遍，从脱衣到穿好睡衣，成人只在门外提示不超过 2 次',
+  defaultMode: 'backward',
+  sessionRuns: 1,
+  needs: ['淋浴间', '沐浴露', '大浴巾', '睡衣', '洗衣篮'],
+  steps: [
+    {
+      order: 1,
+      name: '脱衣归位',
+      sd: '把衣服放进篮子',
+      criterion: '脱下的衣物全部放进洗衣篮，不扔在地上',
+      hint: '指一下篮子 / 捡起来递给他放',
+    },
+    {
+      order: 2,
+      name: '试水温',
+      sd: '先试试水',
+      criterion: '手伸到水流下试温，说「可以」或调冷热后才站进去',
+      hint: '示范用手背试 / 说「太烫就转这边」',
+    },
+    {
+      order: 3,
+      name: '淋湿全身',
+      sd: '淋湿',
+      criterion: '身体正面、背面、头发都淋到水',
+      hint: '说「转个圈」 / 示范转身',
+    },
+    {
+      order: 4,
+      name: '打沐浴露',
+      sd: '打沐浴露',
+      criterion: '取适量搓出泡沫，覆盖手臂、前身、腿',
+      hint: '示范搓 / 说「腋下和脖子也要」',
+    },
+    {
+      order: 5,
+      name: '冲净',
+      sd: '冲干净',
+      criterion: '身上和头发没有泡沫残留',
+      hint: '指一下还带泡沫的地方 / 说「头发上还有」',
+    },
+    {
+      order: 6,
+      name: '关水',
+      sd: '关水',
+      criterion: '龙头完全关闭，不再出水',
+      hint: '指一下龙头 / 手把手关',
+    },
+    {
+      order: 7,
+      name: '擦干',
+      sd: '擦干',
+      criterion: '用浴巾把身体和头发擦到不滴水',
+      hint: '示范擦背 / 说「头发也要擦」',
+    },
+    {
+      order: 8,
+      name: '穿睡衣',
+      sd: '穿衣服',
+      criterion: '睡衣睡裤都穿好，前后不反',
+      hint: '把衣服递到他手上 / 指一下正反',
+    },
+  ],
+  familyGuide: {
+    how: '把淋浴固定在睡前，顺序每次都一样（先洗头后洗身，或反过来，选一种就别改）。流程稳定了才谈得上独立。',
+    avoid: '这是隐私环节：6 岁以上尽量由同性成人陪同，只在孩子明确求助时才进浴室介入，不要为了练「独立」让孩子独自在无人看护的浴室里完成。',
+  },
+};
+
 // ---------------------------------------------------------------------------
 // P 组 · 解决问题
 // ---------------------------------------------------------------------------
@@ -237,17 +468,17 @@ const ASK_FOR_HELP: ChainTarget = {
   id: 'P1',
   name: '不会做时说「帮我」',
   group: 'problem',
-  band: 'preschool',
-  difficulty: 4,
+  band: 'school',
+  difficulty: 7,
   settings: ['desk', 'home'],
-  summary: '拼图拼不上、裤子拉不上时，先停手，再找到身边的大人开口说「帮我」，不是硬掰也不是扔掉。',
+  summary: '作业不会写、拉链拉不上、鞋带开了时，先停手，再找到身边的大人开口说「帮我」，不是硬掰也不是扔掉。',
   standard2: '遇到卡住的任务，10 秒内停手并主动开口求助，一周 ≥3 次，不需事先提醒',
   onePenalty: '会说「帮我」，但只在被问「要不要帮忙」之后才说；或先闹一场再说',
   sessionSuccess: '一节课设 3 个卡住的情境，其中 2 个能自己停下来并开口',
   skillRef: 'K3',
   defaultMode: 'forward',
   sessionRuns: 3,
-  needs: ['一个明显拼不上的拼图（缺块或超难度）', '一件他穿不上的衣物'],
+  needs: ['一道明显超出他能力的题', '一件他自己拉不上的衣物'],
   steps: [
     {
       order: 1,
@@ -280,21 +511,21 @@ const ASK_FOR_HELP: ChainTarget = {
   },
 };
 
-const TOY_TAKEN: ChainTarget = {
+const THING_TAKEN: ChainTarget = {
   id: 'P2',
-  name: '玩具被抢',
+  name: '东西被拿走',
   group: 'problem',
-  band: 'preschool',
-  difficulty: 5,
-  settings: ['floor', 'home'],
-  summary: '玩具被拿走时，先停手不动手，大声说「不要」，把东西拿回来，再去告诉大人发生了什么。',
+  band: 'school',
+  difficulty: 8,
+  settings: ['desk', 'floor'],
+  summary: '同学拿走他的笔或橡皮时，先停手不动手，大声说「不要」，把东西拿回来，再去告诉老师发生了什么。',
   standard2: '4 步里前三步独立完成（不动手 → 说「不要」→ 拿回），一周 ≥2 次',
   onePenalty: '会哭会喊但不动手也不求助；或直接上手抢打，事后说不清经过',
   sessionSuccess: '一节课设 2 个情境，其中 1 个能走完前 3 步且没有推打',
   skillRef: 'K2',
   defaultMode: 'forward',
   sessionRuns: 2,
-  needs: ['一件他正在玩的、明确属于他的玩具', '一位配合扮演的成人或同伴'],
+  needs: ['一件他正在用、明确属于他的文具', '一位配合扮演的成人或同学'],
   steps: [
     {
       order: 1,
@@ -317,80 +548,159 @@ const TOY_TAKEN: ChainTarget = {
       name: '拿回东西',
       sd: '（不给指令）',
       selfInitiated: true,
-      criterion: '把玩具拿回手里或护在身前，没有继续拉扯',
+      criterion: '把东西拿回手里或放进抽屉，没有继续拉扯',
       hint: '指一下他的手 / 说「拿回来」',
     },
     {
       order: 4,
-      name: '告诉大人',
+      name: '告诉老师',
       sd: '去告诉老师',
-      criterion: '走到大人面前，说出「他抢我的」或同时指人和指物',
+      criterion: '走到老师面前，说出「他拿我的」或同时指人和指物',
       hint: '牵他过去 / 说前半句「老师，他…」',
     },
   ],
   familyGuide: {
-    how: '在家用「抢—还」的小游戏练前 3 步，抢完一定还回去。重点是让孩子体验「说出来东西就回来了」，而不是「抢回去才算赢」。',
-    avoid: '别教孩子「他抢你就抢回来」。这条链保的是孩子的安全和表达，不是输赢；也别在孩子面前评判对方小孩。',
+    how: '在家用「拿走—还回来」的小游戏练前 3 步，拿完一定还回去。重点是让孩子体验「说出来东西就回来了」，而不是「抢回去才算赢」。',
+    avoid: '别教孩子「他抢你就抢回来」。这条链保的是孩子的安全和表达，不是输赢；也别在孩子面前评判对方。',
   },
 };
 
-const OUT_OF_REACH: ChainTarget = {
+const GOT_LOST: ChainTarget = {
   id: 'P3',
-  name: '东西够不着',
+  name: '走散了怎么办',
   group: 'problem',
-  band: 'preschool',
-  difficulty: 6,
-  settings: ['home', 'desk'],
-  summary: '想要的东西在架子上时，不爬高不硬跳，先看有没有凳子或夹子，实在够不到就叫人说「帮我拿」。',
-  standard2: '4 步独立完成，全过程没有攀爬家具、没有摔落风险动作',
-  onePenalty: '会叫人但先爬了再说；或站在下面一直跳，不找工具也不开口',
-  sessionSuccess: '一节课设 2 次够不着的情境，其中 1 次先找工具再求助',
-  skillRef: 'K3',
+  band: 'school',
+  difficulty: 9,
+  settings: ['outdoor'],
+  summary: '在商场或街上找不到家人时，不乱跑、回到刚才的位置、找穿制服的人或带小孩的大人，说清自己走散了。',
+  standard2: '5 步能在实地演练中独立走完，全程不跑出视线范围、不跟陌生人离场',
+  onePenalty: '知道要找大人，但一着急就往反方向跑；或找到人却说不清自己是谁',
+  sessionSuccess: '一节课设 2 个情境：先在教室里把 5 步说清，再去一次真实商场实地走一遍',
+  skillRef: 'L5',
   defaultMode: 'forward',
   sessionRuns: 2,
-  needs: ['一个放高的透明罐（能看见里面的东西）', '一张稳的小凳子', '一个长柄夹子'],
+  needs: ['一间常去的商场或超市（避开人流高峰）', '一张写着孩子姓名和家长电话的卡片', '提前和现场保安打过招呼'],
   steps: [
     {
       order: 1,
-      name: '停手',
+      name: '停下不乱跑',
       sd: '（不给指令）',
       selfInitiated: true,
-      criterion: '停止跳跃、攀爬、拉扯架子',
-      hint: '说「停」 / 把他从架子旁带开一步',
+      criterion: '停下脚步站在原地 ≥5 秒，没有继续往前或往回跑',
+      hint: '说「站住」 / 拉住他的手',
     },
     {
       order: 2,
-      name: '找工具',
+      name: '环顾四周',
       sd: '（不给指令）',
       selfInitiated: true,
-      criterion: '视线在周围找，或手指向凳子、夹子',
-      hint: '指一下凳子 / 说「有没有可以踩的」',
+      criterion: '转头看四周，视线在搜索，不是原地发呆或哭',
+      hint: '说「看看妈妈在哪」 / 带他转头看一圈',
     },
     {
       order: 3,
-      name: '用工具',
+      name: '回到固定点',
       sd: '（不给指令）',
       selfInitiated: true,
-      criterion: '搬凳子到位置并踩稳，或拿夹子去夹',
-      hint: '示范搬凳子 / 扶一下凳子腿',
-      optional: true, // 现场判断不稳妥时跳过，直接走求助
+      criterion: '退回到上一个经过的固定位置（店门口、收银台、电梯口）',
+      hint: '指一下固定点 / 说「回刚才那个门口」',
     },
     {
       order: 4,
-      name: '开口求助',
+      name: '找对人',
       sd: '（不给指令）',
       selfInitiated: true,
-      criterion: '说出「帮我拿」并同时指向目标物',
-      hint: '说前半句「帮我…」 / 示范一遍',
+      criterion: '走向穿制服的工作人员或带小孩的家长，距离 <2 米停下',
+      hint: '指一下保安 / 说「找穿制服的叔叔」',
+    },
+    {
+      order: 5,
+      name: '说清走散了',
+      sd: '告诉他你怎么了',
+      criterion: '说出「我找不到妈妈了」并说出自己的名字',
+      hint: '说前半句「我找不到…」 / 让他拿出信息卡',
     },
   ],
   familyGuide: {
-    how: '把零食和常用玩具放到「需要踮脚但踩凳子就一定够得到」的高度。太容易就没机会练，太高高到怎么都够不到也会放弃。',
-    avoid: '别把这条练成「一律找人」。工具能解决就先练工具，求助是兜底，顺序反了孩子会变成凡事只喊人。',
+    how: '先在教室里把 5 步说熟，再去一次真实商场走一遍。提前和保安打好招呼，让孩子真的走过去说一次——演练过的和没演练过的差别非常大。',
+    avoid: '别用「你再乱跑就会被拐走」来吓。吓出来的配合遇到真走散时会变成僵住不动，反而更危险。',
   },
 };
 
-export const CHAIN_TARGETS: ChainTarget[] = [WASH_HANDS, TIDY_TOYS, PUT_ON_SHOES, ASK_FOR_HELP, TOY_TAKEN, OUT_OF_REACH];
+const EMERGENCY_FIRST_STEP: ChainTarget = {
+  id: 'P4',
+  name: '突发情况第一步',
+  group: 'problem',
+  band: 'school',
+  difficulty: 10,
+  settings: ['home', 'outdoor'],
+  summary: '遇到受伤流血、着火冒烟、有人倒地、陌生人搭讪、被反锁这五类情况，先离开危险、再找人、能说清发生在哪。',
+  standard2: '5 类情境中 ≥4 类能说出并演示第一步，不自行处理危险源',
+  onePenalty: '说得出但做不出；或第一时间跑去找人，却没先离开危险的地方',
+  sessionSuccess: '一节课过 3 类情境，其中 2 类能自己先离开危险再找大人',
+  skillRef: 'L5',
+  defaultMode: 'forward',
+  sessionRuns: 2,
+  needs: ['5 张情境卡片（受伤 / 着火 / 有人倒地 / 陌生人 / 被反锁）', '教室或家里的实景动线'],
+  steps: [
+    {
+      order: 1,
+      name: '停下',
+      sd: '（不给指令）',
+      selfInitiated: true,
+      criterion: '手里的事停下，注意力转向异常的地方',
+      hint: '说「停」 / 指一下异常的方向',
+    },
+    {
+      order: 2,
+      name: '判断危不危险',
+      sd: '（不给指令）',
+      selfInitiated: true,
+      criterion: '说出「危险」或「不危险」，判断与实情一致',
+      hint: '问「这个危险吗」 / 给两个选项',
+    },
+    {
+      order: 3,
+      name: '离开危险',
+      sd: '（不给指令）',
+      selfInitiated: true,
+      criterion: '朝远离危险源的方向移动 ≥2 米，没有伸手去碰',
+      hint: '拉住他往后退 / 说「往这边走」',
+    },
+    {
+      order: 4,
+      name: '找大人',
+      sd: '（不给指令）',
+      selfInitiated: true,
+      criterion: '走向最近的成人，距离 <2 米并开口叫人',
+      hint: '指一下最近的成人 / 说「去叫叔叔」',
+    },
+    {
+      order: 5,
+      name: '说清在哪怎么了',
+      sd: '告诉他怎么了',
+      criterion: '说出「哪里 + 怎么了」两个要素，如「厨房着火了」',
+      hint: '说前半句「厨房…」 / 给两个选项让他选',
+    },
+  ],
+  familyGuide: {
+    how: '一次只过一类情境，用实景走一遍：站在厨房门口问「这里冒烟了，你第一步做什么」。五类分开练，别一次全上。',
+    avoid: '别让孩子演练「救火」「止血」这类处置动作。这条链只保前三步——离开、找人、说清楚。要孩子去处理危险源，反而是把他推回危险里。',
+  },
+};
+
+export const CHAIN_TARGETS: ChainTarget[] = [
+  WASH_HANDS,
+  PUT_ON_SHOES,
+  BRUSH_TEETH,
+  PACK_SCHOOLBAG,
+  BUY_THING,
+  SHOWER,
+  ASK_FOR_HELP,
+  THING_TAKEN,
+  GOT_LOST,
+  EMERGENCY_FIRST_STEP,
+];
 
 export function groupOf<T extends { group: ChainGroup }>(targets: T[], group: ChainGroup): T[] {
   return targets.filter((t) => t.group === group);
@@ -401,7 +711,7 @@ export function getChainTarget(id: string | undefined): ChainTarget | undefined 
   return CHAIN_TARGETS.find((t) => t.id === id);
 }
 
-/** 挑下一个目标：同组内优先，组内都稳了才跨组 */
+/** 挑下一个目标：按难度顺序取第一个还没稳的 */
 export function suggestNextChain(stableIds: string[]): ChainTarget | undefined {
   const stable = new Set(stableIds);
   const pending = CHAIN_TARGETS.filter((t) => !stable.has(t.id));
