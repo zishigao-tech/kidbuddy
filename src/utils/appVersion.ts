@@ -5,7 +5,7 @@ const isTauri =
 
 /**
  * 构建时打包进来的版本号，作为非 Tauri 环境（如浏览器预览）的回退值。
- * package.json 与 src-tauri/tauri.conf.json 的版本由 scripts/release.sh 保持同步。
+ * package.json 与 src-tauri/tauri.conf.json 的版本由 scripts/release.mjs 保持同步。
  */
 export const FALLBACK_APP_VERSION: string = (pkg as { version?: string }).version ?? '0.0.0';
 

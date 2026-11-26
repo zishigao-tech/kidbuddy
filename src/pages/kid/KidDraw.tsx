@@ -314,7 +314,7 @@ export default function KidDraw() {
           </div>
 
           {/* 画风选择 */}
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+          <div className="grid grid-cols-2 gap-2.5 md:grid-cols-4">
             {KID_ART_STYLES.map((item) => {
               const active = style === item.id;
               return (
@@ -323,7 +323,7 @@ export default function KidDraw() {
                   type="button"
                   data-testid={`style-${item.id}`}
                   onClick={() => setStyle(item.id)}
-                  className={`flex h-14 items-center justify-center gap-2 rounded-2xl border-2 px-4 text-base font-bold shadow-sm transition active:scale-[0.98] ${
+                  className={`flex min-h-14 items-center justify-center gap-2 whitespace-nowrap rounded-2xl border-2 px-3 py-2 text-base font-bold shadow-sm transition active:scale-[0.98] ${
                     active ? 'bg-white text-slate-800 shadow-md' : 'border-transparent bg-white/70 text-slate-600'
                   }`}
                   style={{ borderColor: active ? item.accent : undefined, backgroundColor: active ? item.bg : undefined }}

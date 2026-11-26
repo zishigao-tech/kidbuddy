@@ -327,8 +327,12 @@ export function KidInputBar({
                 : listening
                   ? partial || '我在听，说完松开～'
                   : pendingImage
-                    ? '按住语音提问这张图（或按空格键）'
-                    : '按住说话（或长按空格键）'}
+                    ? typeof navigator !== 'undefined' && /Android|iPhone|iPad|iPod/i.test(navigator.userAgent)
+                      ? '按住语音提问这张图'
+                      : '按住语音提问这张图（或按空格键）'
+                    : typeof navigator !== 'undefined' && /Android|iPhone|iPad|iPod/i.test(navigator.userAgent)
+                      ? '按住说话，松开发送'
+                      : '按住说话（或长按空格键）'}
             </span>
           </button>
         ) : (

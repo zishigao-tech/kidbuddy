@@ -131,12 +131,7 @@ export function PuzzleSession({
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-2">
-        {/*
-          盘面限制在 44vh 见方：正方形的高度就等于宽度，压宽度就连带压了高度。
-          之前是固定的 max-w-[520px]，竖屏平板上一块盘子 520px 高，再加上小筐和
-          底部按钮，碎片筐就被挤到屏幕外——孩子得边滚边拼，碎片根本看不见。
-        */}
-        <div className="mx-auto w-full max-w-[min(520px,44vh)]">
+        <div className="mx-auto w-full max-w-[520px]">
           {/* 底板：淡淡的整图做底，给孩子一个参照 */}
           <div className="relative aspect-square w-full overflow-hidden rounded-[28px] bg-white shadow-inner" data-testid="puzzle-board">
             <div
@@ -201,8 +196,7 @@ export function PuzzleSession({
                 <span>小筐里的碎片</span>
                 <span>还剩 {run.tray.length} 块</span>
               </div>
-              {/* 单行横滑：碎片多到 25 块时会换三四行，把版面撑高又把盘面挤出屏幕 */}
-              <div className="flex gap-2 overflow-x-auto pb-1" data-testid="puzzle-tray">
+              <div className="flex flex-wrap justify-center gap-2" data-testid="puzzle-tray">
                 {run.tray.map((pieceId) => (
                   <button
                     key={pieceId}
@@ -213,7 +207,7 @@ export function PuzzleSession({
                     aria-label={`碎片 ${pieceId + 1}`}
                     aria-pressed={selected === pieceId}
                     data-testid={`puzzle-piece-${pieceId}`}
-                    className={`h-16 w-16 min-h-12 shrink-0 overflow-hidden rounded-xl border-2 shadow-sm transition active:scale-95 ${
+                    className={`h-16 w-16 min-h-12 overflow-hidden rounded-xl border-2 shadow-sm transition active:scale-95 ${
                       selected === pieceId ? 'border-amber-400 ring-4 ring-amber-200' : 'border-white'
                     }`}
                     style={pieceStyle(level, pieceId)}

@@ -316,12 +316,10 @@ pub fn speech_dialog_send(request: tauri::ipc::Request<'_>) -> Result<(), String
         .get("x-dialog-session")
         .and_then(|v| v.to_str().ok())
         .ok_or("missing x-dialog-session header")?;
-    let tauri::ipc::InvokeBody::Raw(bytes) = request.body() else {
-        return Err("audio must be sent as raw bytes".into());
-    };
+    let bytes = crate::speech::decode_audio_body(request.body(), crate::speech::MAX_STREAM_CHUNK_BYTES)?;
     sender(session_id)
         .ok_or("对话已结束")?
-        .send(DialogCommand::Audio(bytes.clone()))
+        .send(DialogCommand::Audio(bytes))
         .map_err(|_| "对话已结束".to_string())
 }
 

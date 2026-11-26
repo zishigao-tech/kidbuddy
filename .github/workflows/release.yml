@@ -3,150 +3,228 @@ name: Release
 on:
   push:
     tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Optional release tag (e.g. v0.1.0). Leave empty for a branch APK test build.
+        required: false
+        type: string
 
 permissions:
   contents: write
 
+env:
+  RELEASE_TAG: ${{ github.event_name == 'push' && github.ref_name || (inputs.tag || '') }}
+
 jobs:
-  # Create a single draft release first; the build jobs upload assets to it.
+  # 第一期仅开启 Android 平板 APK 自动打包；有 RELEASE_TAG 时创建草稿 Release 并自动发布，留空时仅出 Actions 测试产物。
   create-release:
+    if: ${{ github.event_name == 'push' || inputs.tag != '' }}
     runs-on: ubuntu-latest
-    steps:
-      - name: Create draft release
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          # Create the draft release if it does not already exist for this tag.
-          if ! gh release view "${{ github.ref_name }}" --repo "${{ github.repository }}" >/dev/null 2>&1; then
-            gh release create "${{ github.ref_name }}" \
-              --repo "${{ github.repository }}" \
-              --title "KidBuddy ${{ github.ref_name }}" \
-              --draft \
-              --notes "## 下载安装包
-
-          | 平台 | 文件 | 说明 |
-          |------|------|------|
-          | 🍎 macOS (Apple Silicon) | \`KidBuddy_macOS-Apple-Silicon.dmg\` | M1/M2/M3/M4 芯片 Mac |
-          | 🍎 macOS (Intel) | \`KidBuddy_macOS-Intel.dmg\` | 2020 年前的 Intel 芯片 Mac |
-          | 🪟 Windows | \`KidBuddy_Windows_x64.exe\` | Windows 10/11 64位 |
-          | 🐧 Linux | \`KidBuddy_Linux_amd64.deb\` | Ubuntu / Debian |
-
-          ## macOS 安装提示
-          如果提示\"已损坏，无法打开\"，请在终端执行：
-          \`\`\`bash
-          xattr -cr /Applications/KidBuddy.app
-          \`\`\`
-
-          ## Windows 安装提示
-          如果 SmartScreen 弹出警告，点击\"更多信息\" → \"仍要运行\"即可。"
-          fi
-
-  build:
-    needs: create-release
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - platform: macos-latest
-            args: --target aarch64-apple-darwin
-            rust_targets: aarch64-apple-darwin
-            asset_name: KidBuddy_macOS-Apple-Silicon.dmg
-            find_pattern: '*.dmg'
-          - platform: macos-latest
-            args: --target x86_64-apple-darwin
-            rust_targets: x86_64-apple-darwin
-            asset_name: KidBuddy_macOS-Intel.dmg
-            find_pattern: '*.dmg'
-          - platform: ubuntu-22.04
-            args: ''
-            rust_targets: ''
-            asset_name: KidBuddy_Linux_amd64.deb
-            find_pattern: '*.deb'
-          - platform: windows-latest
-            args: ''
-            rust_targets: ''
-            asset_name: KidBuddy_Windows_x64.exe
-            find_pattern: '*-setup.exe'
-
-    runs-on: ${{ matrix.platform }}
-
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'push' && github.ref_name || inputs.tag }}
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
-          cache: 'npm'
+          node-version: 22
+
+      - name: Create release notes
+        run: node scripts/release-notes.mjs --version "${{ env.RELEASE_TAG }}" --output .release-notes.md
+
+      - name: Create draft release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="${{ env.RELEASE_TAG }}"
+          if ! gh release view "$tag" --repo "${{ github.repository }}" >/dev/null 2>&1; then
+            gh release create "$tag" \
+              --repo "${{ github.repository }}" \
+              --title "KidBuddy ${tag}" \
+              --draft \
+              --notes-file .release-notes.md
+          fi
+
+  build-android:
+    needs: [create-release]
+    if: ${{ always() && (needs.create-release.result == 'success' || needs.create-release.result == 'skipped') }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'push' && github.ref_name || inputs.tag || github.sha }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Typecheck and unit tests
+        run: |
+          npm run typecheck
+          npm test
+
+      - name: Setup Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: ${{ matrix.rust_targets }}
+          targets: aarch64-linux-android
 
       - name: Rust cache
         uses: swatinem/rust-cache@v2
         with:
           workspaces: './src-tauri -> target'
 
-      - name: Install system dependencies (Ubuntu)
-        if: matrix.platform == 'ubuntu-22.04'
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Setup Android SDK & NDK
+        shell: bash
         run: |
-          sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+          set -euo pipefail
+          SDK_ROOT="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
+          SDKMANAGER="$SDK_ROOT/cmdline-tools/latest/bin/sdkmanager"
+          if [ ! -x "$SDKMANAGER" ]; then
+            SDKMANAGER="$(command -v sdkmanager)"
+          fi
+          yes | "$SDKMANAGER" --licenses >/dev/null 2>&1 || true
+          "$SDKMANAGER" "platforms;android-36" "build-tools;36.0.0" "ndk;27.2.12479018"
+          echo "ANDROID_HOME=$SDK_ROOT" >> "$GITHUB_ENV"
+          echo "NDK_HOME=$SDK_ROOT/ndk/27.2.12479018" >> "$GITHUB_ENV"
+          echo "ANDROID_BUILD_TOOLS=$SDK_ROOT/build-tools/36.0.0" >> "$GITHUB_ENV"
 
-      - name: Install frontend dependencies
-        run: npm ci
-
-      # Build only — no tagName/releaseName here, so tauri-action does NOT
-      # upload its default-named artifacts. We upload renamed files ourselves.
-      - name: Build Tauri app
-        uses: tauri-apps/tauri-action@v0
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          args: ${{ matrix.args }}
-
-      # Find the built artifact and upload it under a clear, platform-specific name.
-      - name: Upload renamed asset (Unix)
-        if: matrix.platform != 'windows-latest'
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Ensure gradlew is executable
+        shell: bash
         run: |
-          FILE=$(find src-tauri/target -name "${{ matrix.find_pattern }}" | head -1)
-          if [ -z "$FILE" ]; then
-            echo "No artifact matching ${{ matrix.find_pattern }} found"
+          sed -i 's/\r$//' src-tauri/gen/android/gradlew
+          chmod +x src-tauri/gen/android/gradlew
+
+      - name: Build Android ARM64 APK
+        run: npx tauri android build --apk --target aarch64
+
+      - name: Align, sign, and verify APK
+        id: sign
+        shell: bash
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_STORE_PASSWORD: ${{ secrets.ANDROID_STORE_PASSWORD }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          UNSIGNED_APK="src-tauri/gen/android/app/build/outputs/apk/arm64/release/app-arm64-release-unsigned.apk"
+          if [ ! -f "$UNSIGNED_APK" ]; then
+            UNSIGNED_APK="$(find src-tauri/gen/android/app/build/outputs/apk -name '*-unsigned.apk' -type f | head -1 || true)"
+          fi
+          if [ -z "$UNSIGNED_APK" ] || [ ! -f "$UNSIGNED_APK" ]; then
+            echo "No unsigned APK generated"
+            find src-tauri/gen/android/app/build/outputs/apk -type f || true
             exit 1
           fi
-          cp "$FILE" "${{ matrix.asset_name }}"
-          gh release upload "${{ github.ref_name }}" "${{ matrix.asset_name }}" \
-            --repo "${{ github.repository }}" --clobber
 
-      - name: Upload renamed asset (Windows)
-        if: matrix.platform == 'windows-latest'
-        shell: pwsh
+          APP_VERSION="$(node -p "require('./package.json').version")"
+          SHORT_SHA="${GITHUB_SHA::7}"
+          mkdir -p dist-android
+          ALIGNED_APK="$RUNNER_TEMP/kidbuddy-aligned.apk"
+          "$ANDROID_BUILD_TOOLS/zipalign" -f -p 4 "$UNSIGNED_APK" "$ALIGNED_APK"
+
+          HAS_OFFICIAL_SIGNING=true
+          if [ -z "${ANDROID_KEYSTORE_BASE64:-}" ] || [ -z "${ANDROID_KEY_ALIAS:-}" ] || [ -z "${ANDROID_STORE_PASSWORD:-}" ] || [ -z "${ANDROID_KEY_PASSWORD:-}" ]; then
+            HAS_OFFICIAL_SIGNING=false
+          fi
+
+          if [ "$HAS_OFFICIAL_SIGNING" = "true" ]; then
+            KEYSTORE_FILE="$RUNNER_TEMP/release.keystore"
+            printf '%s' "$ANDROID_KEYSTORE_BASE64" | tr -d '[:space:]' | base64 -d > "$KEYSTORE_FILE"
+            if [ -n "${{ env.RELEASE_TAG }}" ]; then
+              ASSET_NAME="KidBuddy_Android-arm64-${{ env.RELEASE_TAG }}.apk"
+            else
+              ASSET_NAME="KidBuddy_Android-arm64-v${APP_VERSION}-${SHORT_SHA}.apk"
+            fi
+            "$ANDROID_BUILD_TOOLS/apksigner" sign \
+              --ks "$KEYSTORE_FILE" \
+              --ks-key-alias "$ANDROID_KEY_ALIAS" \
+              --ks-pass env:ANDROID_STORE_PASSWORD \
+              --key-pass env:ANDROID_KEY_PASSWORD \
+              --out "dist-android/${ASSET_NAME}" \
+              "$ALIGNED_APK"
+            echo "Signed with repository release keystore: ${ASSET_NAME}" >> "$GITHUB_STEP_SUMMARY"
+          elif [ -n "${{ env.RELEASE_TAG }}" ]; then
+            echo "::error::发布正式 Release 必须配置 4 个 GitHub Secrets：ANDROID_KEYSTORE_BASE64、ANDROID_KEY_ALIAS、ANDROID_STORE_PASSWORD、ANDROID_KEY_PASSWORD"
+            exit 1
+          else
+            KEYSTORE_FILE="$RUNNER_TEMP/test.keystore"
+            export TEST_KEY_PASS="kidbuddy-ci-test"
+            keytool -genkeypair -v -keystore "$KEYSTORE_FILE" -alias kidbuddy-test \
+              -keyalg RSA -keysize 2048 -validity 365 \
+              -storepass "$TEST_KEY_PASS" -keypass "$TEST_KEY_PASS" \
+              -dname "CN=KidBuddy CI Test, OU=CI, O=KidBuddy, L=SH, S=SH, C=CN"
+            ASSET_NAME="KidBuddy_Android-arm64-v${APP_VERSION}-${SHORT_SHA}-test-signed.apk"
+            "$ANDROID_BUILD_TOOLS/apksigner" sign \
+              --ks "$KEYSTORE_FILE" \
+              --ks-key-alias kidbuddy-test \
+              --ks-pass env:TEST_KEY_PASS \
+              --key-pass env:TEST_KEY_PASS \
+              --out "dist-android/${ASSET_NAME}" \
+              "$ALIGNED_APK"
+            echo "Signed with ephemeral test keystore (configure ANDROID_KEYSTORE_BASE64 secrets for official upgrades): ${ASSET_NAME}" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+          "$ANDROID_BUILD_TOOLS/apksigner" verify --verbose "dist-android/${ASSET_NAME}"
+          ls -lh "dist-android/${ASSET_NAME}"
+          echo "asset_name=${ASSET_NAME}" >> "$GITHUB_OUTPUT"
+          echo "artifact_name=${ASSET_NAME%.apk}" >> "$GITHUB_OUTPUT"
+
+      - name: Cleanup temporary signing files
+        if: always()
+        shell: bash
+        run: rm -f "$RUNNER_TEMP/release.keystore" "$RUNNER_TEMP/test.keystore" "$RUNNER_TEMP/kidbuddy-aligned.apk"
+
+      - name: Upload Android APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.sign.outputs.artifact_name }}
+          path: dist-android/${{ steps.sign.outputs.asset_name }}
+          retention-days: 14
+          if-no-files-found: error
+
+      - name: Upload Android APK to release
+        if: ${{ github.event_name == 'push' || inputs.tag != '' }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          $file = Get-ChildItem -Path src-tauri/target -Recurse -Filter "${{ matrix.find_pattern }}" | Select-Object -First 1
-          if (-not $file) {
-            Write-Error "No artifact matching ${{ matrix.find_pattern }} found"
-            exit 1
-          }
-          Copy-Item $file.FullName "${{ matrix.asset_name }}"
-          gh release upload "${{ github.ref_name }}" "${{ matrix.asset_name }}" `
+          gh release upload "${{ env.RELEASE_TAG }}" "dist-android/${{ steps.sign.outputs.asset_name }}" \
             --repo "${{ github.repository }}" --clobber
 
+  # TODO (Phase 2): 按需接入桌面端与苹果端自动构建与发布：
+  # - build-desktop: macOS (Apple Silicon / Intel .dmg)、Windows (x64 .exe)、Linux (.deb)
+  # - build-ios: macos-latest 跑 npx tauri ios build（需先在 Apple Developer 配置发布证书与描述文件 Secrets）
+
   publish-release:
-    needs: build
+    needs: [build-android]
+    if: ${{ github.event_name == 'push' || inputs.tag != '' }}
     runs-on: ubuntu-latest
     steps:
       - name: Publish release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release edit "${{ github.ref_name }}" \
+          gh release edit "${{ env.RELEASE_TAG }}" \
             --repo "${{ github.repository }}" \
             --draft=false \
             --latest

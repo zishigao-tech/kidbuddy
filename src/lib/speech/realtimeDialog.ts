@@ -6,7 +6,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { loadSpeechConfig, type SpeechConfig } from '@/config/speechConfig';
 import { PcmChunker, pcm16Base64ToFloat32 } from './pcm';
-import { mapStartError, micSupported, startMicCapture } from './qwenSpeech';
+import { audioIpcPayload, mapStartError, micSupported, startMicCapture } from './qwenSpeech';
 import type { SpeechErrorCode } from './types';
 
 const INPUT_RATE = 16000;
@@ -229,7 +229,7 @@ export class RealtimeDialogTurn {
 
   private send(bytes: Uint8Array): void {
     this.sendChain = this.sendChain
-      .then(() => invoke('speech_dialog_send', bytes, { headers: { 'x-dialog-session': this.sessionId } }))
+      .then(() => invoke('speech_dialog_send', audioIpcPayload(bytes), { headers: { 'x-dialog-session': this.sessionId } }))
       .catch(() => undefined);
   }
 

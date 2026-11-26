@@ -240,17 +240,12 @@ pub async fn speech_http_asr(app: AppHandle, request: tauri::ipc::Request<'_>) -
     } else {
         &["zh"]
     };
-    let tauri::ipc::InvokeBody::Raw(wav) = request.body() else {
-        return Err("audio must be sent as raw bytes".into());
-    };
+    let wav = crate::speech::decode_audio_body(request.body(), MAX_UPLOAD_BYTES)?;
     if wav.len() <= 44 {
         return Ok(String::new());
     }
-    if wav.len() > MAX_UPLOAD_BYTES {
-        return Err("录音太长了".into());
-    }
     let api_key = resolve_api_key(&app, provider_id.as_deref())?;
-    let value = post_json(&client()?, endpoint(&base, ASR_PATH)?, &api_key, &asr_body_with_hints(&model, wav, hints)).await?;
+    let value = post_json(&client()?, endpoint(&base, ASR_PATH)?, &api_key, &asr_body_with_hints(&model, &wav, hints)).await?;
     Ok(parse_asr_text(&value))
 }
 

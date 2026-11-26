@@ -90,3 +90,24 @@ export function encodeWav(samples: Int16Array, sampleRate = 16000): Uint8Array {
   for (let i = 0; i < samples.length; i += 1) view.setInt16(44 + i * 2, samples[i], true);
   return new Uint8Array(buffer);
 }
+
+/** 分块转 base64，避免整段 WAV 录音一次展开时超出调用栈上限 */
+export function bytesToBase64(bytes: Uint8Array): string {
+  if (!bytes.length) return '';
+  const chunkSize = 0x8000;
+  const parts: string[] = [];
+  for (let i = 0; i < bytes.length; i += chunkSize) {
+    const slice = bytes.subarray(i, i + chunkSize);
+    parts.push(String.fromCharCode(...slice));
+  }
+  return btoa(parts.join(''));
+}
+
+/** 统一桌面端二进制通道与移动端 JSON 字节数组的返回格式，供 Blob 播放使用 */
+export function normalizeArrayBuffer(data: ArrayBuffer | Uint8Array | number[]): ArrayBuffer {
+  if (data instanceof ArrayBuffer) return data;
+  const view = data instanceof Uint8Array ? data : new Uint8Array(data);
+  const copy = new Uint8Array(view.byteLength);
+  copy.set(view);
+  return copy.buffer;
+}

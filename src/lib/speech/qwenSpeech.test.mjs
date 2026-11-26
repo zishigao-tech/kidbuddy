@@ -18,7 +18,14 @@ globalThis.localStorage = {
 };
 
 const config = await importTsModule(new URL('../../config/speechConfig.ts', import.meta.url));
-const { downsampleToPcm16, encodeWav, PcmChunker, pcm16Base64ToFloat32 } = await importTsModule(new URL('./pcm.ts', import.meta.url));
+const {
+  downsampleToPcm16,
+  encodeWav,
+  bytesToBase64,
+  normalizeArrayBuffer,
+  PcmChunker,
+  pcm16Base64ToFloat32,
+} = await importTsModule(new URL('./pcm.ts', import.meta.url));
 const gameSource = await readFile(new URL('../../config/aiGame.ts', import.meta.url), 'utf8');
 const aiMembersSource = await readFile(new URL('../../config/aiMembers.ts', import.meta.url), 'utf8');
 
@@ -298,6 +305,23 @@ const aiMembersSource = await readFile(new URL('../../config/aiMembers.ts', impo
   const floats = pcm16Base64ToFloat32(Buffer.from(bytes).toString('base64'));
   assert.deepEqual(Array.from(floats), [0, 0.5, -1, 32767 / 32768]);
   assert.equal(pcm16Base64ToFloat32('').length, 0);
+}
+
+// ---- 移动端 IPC 音频编解码（base64 分块 & ArrayBuffer 归一化） ----
+{
+  assert.equal(bytesToBase64(new Uint8Array(0)), '');
+  const sample = new Uint8Array([0, 1, 127, 128, 255]);
+  assert.deepEqual(new Uint8Array(Buffer.from(bytesToBase64(sample), 'base64')), sample);
+
+  const big = new Uint8Array(100 * 1024);
+  for (let i = 0; i < big.length; i += 1) big[i] = i & 0xff;
+  assert.deepEqual(new Uint8Array(Buffer.from(bytesToBase64(big), 'base64')), big, 'large buffer > 0x8000 chunk');
+
+  const rawBuf = new Uint8Array([9, 8, 7]).buffer;
+  assert.equal(normalizeArrayBuffer(rawBuf), rawBuf);
+  const sub = new Uint8Array([1, 2, 3, 4, 5]).subarray(1, 4);
+  assert.deepEqual(Array.from(new Uint8Array(normalizeArrayBuffer(sub))), [2, 3, 4]);
+  assert.deepEqual(Array.from(new Uint8Array(normalizeArrayBuffer([11, 22, 33]))), [11, 22, 33]);
 }
 
 console.log('qwenSpeech tests passed');

@@ -7,7 +7,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { loadSpeechConfig, splitForSynthesis, voiceForSpeaker, type SpeechConfig } from '@/config/speechConfig';
-import { downsampleToPcm16, encodeWav, PcmChunker } from './pcm';
+import { bytesToBase64, downsampleToPcm16, encodeWav, normalizeArrayBuffer, PcmChunker } from './pcm';
 import type { RecognitionHandlers, SpeakOptions, SpeechErrorCode, SpeechRecognizer, SpeechSynthesizer } from './types';
 
 const isTauri = () => typeof window !== 'undefined' && (window as any).__TAURI_INTERNALS__ !== undefined;
@@ -113,10 +113,10 @@ export class CloudSynthesizer implements SpeechSynthesizer {
     }
   }
 
-  private play(bytes: ArrayBuffer, gen: number): Promise<void> {
+  private play(bytes: ArrayBuffer | Uint8Array | number[], gen: number): Promise<void> {
     return new Promise<void>((resolve) => {
       if (gen !== this.generation) return resolve();
-      const url = URL.createObjectURL(new Blob([bytes], { type: 'audio/mpeg' }));
+      const url = URL.createObjectURL(new Blob([normalizeArrayBuffer(bytes)], { type: 'audio/mpeg' }));
       const audio = new Audio(url);
       this.audio = audio;
       const done = () => {
@@ -147,16 +147,62 @@ export class CloudSynthesizer implements SpeechSynthesizer {
 
 export function mapStartError(error: unknown): SpeechErrorCode {
   const name = (error as { name?: string })?.name;
-  if (name === 'NotAllowedError' || name === 'SecurityError') return 'not-allowed';
-  if (name === 'NotFoundError') return 'unsupported';
+  if (
+    name === 'NotAllowedError'
+    || name === 'SecurityError'
+    || name === 'PermissionDeniedError'
+    || name === 'NotReadableError'
+    || name === 'AbortError'
+  ) {
+    return 'not-allowed';
+  }
+  if (name === 'NotFoundError' || name === 'DevicesNotFoundError') return 'unsupported';
   return 'network';
+}
+
+export function formatMicError(error: unknown): string | undefined {
+  const name = (error as { name?: string })?.name;
+  if (name === 'NotReadableError' || name === 'AbortError') {
+    return '麦克风正被占用或未授权，请检查系统麦克风权限后再试。';
+  }
+  return undefined;
+}
+
+export function formatCloudAsrError(error: unknown): string | undefined {
+  const msg = error instanceof Error ? error.message : typeof error === 'string' ? error : '';
+  if (!msg) return undefined;
+  if (msg.includes('还没有配置语音服务')) {
+    return '请先让爸爸妈妈在家长中心配置语音服务的 API Key 哦～';
+  }
+  if (msg.includes('API Key 无效') || msg.includes('没有开通语音服务') || msg.includes('录音太长了') || msg.includes('语音服务地址')) {
+    return msg;
+  }
+  if (msg.includes('连接语音服务失败') || msg.includes('超时')) {
+    return '连不上语音服务，请检查网络或先打字哦。';
+  }
+  return undefined;
+}
+
+/** Android WebView 的 Tauri IPC 只走 JSON postMessage，需把音频包成 audioBase64；桌面端保持原始二进制直传 */
+export function audioIpcPayload(bytes: Uint8Array): Uint8Array | { audioBase64: string } {
+  if (typeof navigator !== 'undefined' && /Android/i.test(navigator.userAgent)) {
+    return { audioBase64: bytesToBase64(bytes) };
+  }
+  return bytes;
 }
 
 /** 打开麦克风，把采样转成 16k PCM 回调出去；返回关闭函数 */
 export async function startMicCapture(onPcm: (pcm: Int16Array) => void): Promise<() => void> {
-  const stream = await navigator.mediaDevices.getUserMedia({
-    audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true },
-  });
+  let stream: MediaStream;
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({
+      audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true },
+    });
+  } catch (error) {
+    const name = (error as { name?: string })?.name;
+    if (name !== 'OverconstrainedError') throw error;
+    stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+  }
   const Ctx = window.AudioContext || (window as any).webkitAudioContext;
   const context = new Ctx() as AudioContext;
   if (context.state === 'suspended') {
@@ -164,15 +210,19 @@ export async function startMicCapture(onPcm: (pcm: Int16Array) => void): Promise
   }
   const source = context.createMediaStreamSource(stream);
   const processor = context.createScriptProcessor(4096, 1, 1);
+  const silentGain = context.createGain();
+  silentGain.gain.value = 0;
   const inputRate = context.sampleRate;
   processor.onaudioprocess = (event) => {
     onPcm(downsampleToPcm16(event.inputBuffer.getChannelData(0), inputRate, ASR_SAMPLE_RATE));
   };
   source.connect(processor);
-  processor.connect(context.destination);
+  processor.connect(silentGain);
+  silentGain.connect(context.destination);
   return () => {
     processor.onaudioprocess = null;
     processor.disconnect();
+    silentGain.disconnect();
     source.disconnect();
     stream.getTracks().forEach((track) => track.stop());
     void context.close().catch(() => undefined);
@@ -206,15 +256,14 @@ export class TokenPlanRecognizer implements SpeechRecognizer {
         offset += chunk.length;
       }
       try {
+        const headers: Record<string, string> = {
+          'x-speech-model': config.asr.model,
+          'x-speech-base': config.httpBase,
+          'x-speech-lang': lang,
+        };
+        if (config.providerId) headers['x-speech-provider'] = config.providerId;
         const text = samples
-          ? await invoke<string>('speech_http_asr', encodeWav(pcm, ASR_SAMPLE_RATE), {
-              headers: {
-                'x-speech-model': config.asr.model,
-                'x-speech-base': config.httpBase,
-                'x-speech-provider': config.providerId,
-                'x-speech-lang': lang,
-              },
-            })
+          ? await invoke<string>('speech_http_asr', audioIpcPayload(encodeWav(pcm, ASR_SAMPLE_RATE)), { headers })
           : '';
         if (state === 'done') return;
         state = 'done';
@@ -223,7 +272,7 @@ export class TokenPlanRecognizer implements SpeechRecognizer {
         if (state === 'done') return;
         state = 'done';
         console.warn('[speech] Token Plan ASR failed', error);
-        handlers.onError?.('network');
+        handlers.onError?.('network', formatCloudAsrError(error));
       } finally {
         if (this.session === control) this.session = null;
       }
@@ -262,7 +311,7 @@ export class TokenPlanRecognizer implements SpeechRecognizer {
         if (state === 'done') return;
         state = 'done';
         console.warn('[speech] microphone unavailable', error);
-        handlers.onError?.(mapStartError(error));
+        handlers.onError?.(mapStartError(error), formatMicError(error));
         if (this.session === control) this.session = null;
       },
     );
@@ -315,7 +364,7 @@ export class RealtimeRecognizer implements SpeechRecognizer {
         return;
       }
       sendChain = sendChain
-        .then(() => invoke('speech_asr_send', bytes, { headers: { 'x-asr-session': sessionId } }))
+        .then(() => invoke('speech_asr_send', audioIpcPayload(bytes), { headers: { 'x-asr-session': sessionId } }))
         .catch(() => undefined);
     };
 
@@ -339,10 +388,10 @@ export class RealtimeRecognizer implements SpeechRecognizer {
       if (!hadError || text) handlers.onFinal(text.trim());
     };
 
-    const fail = (code: SpeechErrorCode) => {
+    const fail = (code: SpeechErrorCode, message?: string) => {
       if (finished) return;
       hadError = true;
-      handlers.onError?.(code);
+      handlers.onError?.(code, message);
     };
 
     const sendStop = () => {
@@ -378,7 +427,7 @@ export class RealtimeRecognizer implements SpeechRecognizer {
           lastText = payload.text || lastText;
         } else if (payload.type === 'error') {
           console.warn('[speech] cloud ASR error', payload.message);
-          fail('network');
+          fail('network', formatCloudAsrError(payload.message));
         } else if (payload.type === 'end') {
           finish(lastText);
         }
@@ -416,7 +465,7 @@ export class RealtimeRecognizer implements SpeechRecognizer {
         await capture;
       } catch (error) {
         console.warn('[speech] microphone unavailable', error);
-        fail(mapStartError(error));
+        fail(mapStartError(error), formatMicError(error));
         control.abort();
         return;
       }
@@ -424,7 +473,7 @@ export class RealtimeRecognizer implements SpeechRecognizer {
         await connect;
       } catch (error) {
         console.warn('[speech] cloud ASR start failed', error);
-        fail('network');
+        fail('network', formatCloudAsrError(error));
         finished = true;
         cleanup();
       }

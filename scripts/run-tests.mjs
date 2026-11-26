@@ -21,7 +21,11 @@ function collect(dir, out) {
   return out;
 }
 
-const files = [...collect(join(root, 'src'), []), ...collect(join(root, 'src-tauri'), [])].sort();
+const files = [
+  ...collect(join(root, 'src'), []),
+  ...collect(join(root, 'src-tauri'), []),
+  ...collect(join(root, 'scripts'), []),
+].sort();
 const failed = [];
 for (const file of files) {
   const rel = relative(root, file);

@@ -500,7 +500,54 @@ pub async fn speech_asr_start(app: AppHandle, args: AsrStartArgs) -> Result<(), 
     Ok(())
 }
 
-/// 音频以原始字节发送（16-bit PCM 单声道），会话 id 放在 `x-asr-session` 请求头
+pub(crate) const MAX_STREAM_CHUNK_BYTES: usize = 2 * 1024 * 1024;
+
+/// 桌面端 Tauri 通过自定义协议传 `InvokeBody::Raw`；Android / WebView fallback 走 `postMessage` JSON，
+/// 只支持把音频编进 JSON（`{ "audioBase64": "..." }` / base64 字符串 / 字节数组）。两边统一在这里解包。
+pub(crate) fn decode_audio_body(body: &tauri::ipc::InvokeBody, max_bytes: usize) -> Result<Vec<u8>, String> {
+    use base64::Engine as _;
+
+    match body {
+        tauri::ipc::InvokeBody::Raw(bytes) => {
+            if bytes.len() > max_bytes {
+                return Err("录音太长了".into());
+            }
+            Ok(bytes.clone())
+        }
+        tauri::ipc::InvokeBody::Json(value) => {
+            if let Some(b64) = value.get("audioBase64").and_then(Value::as_str).or_else(|| value.as_str()) {
+                let trimmed = b64.trim();
+                let max_b64_len = (max_bytes / 3 + 2) * 4;
+                if trimmed.len() > max_b64_len {
+                    return Err("录音太长了".into());
+                }
+                let decoded = base64::engine::general_purpose::STANDARD
+                    .decode(trimmed)
+                    .map_err(|_| "音频数据无法解析".to_string())?;
+                if decoded.len() > max_bytes {
+                    return Err("录音太长了".into());
+                }
+                return Ok(decoded);
+            }
+            if let Some(arr) = value.as_array() {
+                if arr.len() > max_bytes {
+                    return Err("录音太长了".into());
+                }
+                let mut out = Vec::with_capacity(arr.len());
+                for item in arr {
+                    let Some(byte) = item.as_u64().and_then(|n| u8::try_from(n).ok()) else {
+                        return Err("音频数据格式不正确".into());
+                    };
+                    out.push(byte);
+                }
+                return Ok(out);
+            }
+            Err("audio must be sent as raw bytes or audioBase64".into())
+        }
+    }
+}
+
+/// 音频可走桌面端原始字节，也可在移动端传 JSON `audioBase64`；会话 id 放在 `x-asr-session` 请求头
 #[tauri::command]
 pub fn speech_asr_send(request: tauri::ipc::Request<'_>) -> Result<(), String> {
     let session_id = request
@@ -508,12 +555,10 @@ pub fn speech_asr_send(request: tauri::ipc::Request<'_>) -> Result<(), String> {
         .get("x-asr-session")
         .and_then(|v| v.to_str().ok())
         .ok_or("missing x-asr-session header")?;
-    let tauri::ipc::InvokeBody::Raw(bytes) = request.body() else {
-        return Err("audio must be sent as raw bytes".into());
-    };
+    let bytes = decode_audio_body(request.body(), MAX_STREAM_CHUNK_BYTES)?;
     let sender = session_sender(session_id).ok_or("识别会话已结束")?;
     sender
-        .send(AsrCommand::Audio(bytes.clone()))
+        .send(AsrCommand::Audio(bytes))
         .map_err(|_| "识别会话已结束".to_string())
 }
 
@@ -779,5 +824,35 @@ mod tests {
         tx.send(AsrCommand::Abort).unwrap();
         timeout(Duration::from_secs(5), session).await.unwrap().unwrap();
         assert_eq!(events.lock().unwrap().clone(), vec![AsrEvent::End]);
+    }
+
+    #[test]
+    fn decode_audio_body_handles_raw_and_json_mobile_payloads() {
+        use base64::Engine as _;
+
+        let sample = vec![10u8, 20, 30, 255];
+        let b64 = base64::engine::general_purpose::STANDARD.encode(&sample);
+
+        assert_eq!(
+            decode_audio_body(&tauri::ipc::InvokeBody::Raw(sample.clone()), 16).unwrap(),
+            sample
+        );
+        assert!(decode_audio_body(&tauri::ipc::InvokeBody::Raw(sample.clone()), 3).unwrap_err().contains("太长"));
+        assert_eq!(
+            decode_audio_body(&tauri::ipc::InvokeBody::Json(json!({ "audioBase64": b64 })), 16).unwrap(),
+            sample
+        );
+        assert_eq!(
+            decode_audio_body(&tauri::ipc::InvokeBody::Json(json!(b64)), 16).unwrap(),
+            sample
+        );
+        assert_eq!(
+            decode_audio_body(&tauri::ipc::InvokeBody::Json(json!([10, 20, 30, 255])), 16).unwrap(),
+            sample
+        );
+        assert!(decode_audio_body(&tauri::ipc::InvokeBody::Json(json!([1, 2, 3, 4])), 3).is_err());
+        assert!(decode_audio_body(&tauri::ipc::InvokeBody::Json(json!([300])), 16).is_err());
+        assert!(decode_audio_body(&tauri::ipc::InvokeBody::Json(json!({ "audioBase64": "!!bad!!" })), 16).is_err());
+        assert!(decode_audio_body(&tauri::ipc::InvokeBody::Json(json!({ "other": 1 })), 16).is_err());
     }
 }

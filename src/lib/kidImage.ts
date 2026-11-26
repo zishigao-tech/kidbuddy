@@ -27,6 +27,7 @@ import { resolveCompanionCredentials } from '@/utils/companionCredentials';
 import { isTauri } from '@/utils/isTauri';
 import { llmChatComplete } from '@/utils/llmClient';
 import { buildA4JpegPdf, type PdfJpegPage } from './pdfBuilder';
+import { normalizeArrayBuffer } from './speech/pcm';
 
 export interface GenerateKidImageInput {
   subject: string;
@@ -314,8 +315,8 @@ export async function readArtworkVideoBlobUrl(path: string): Promise<string> {
     return trimmed;
   }
   if (!isTauri) return trimmed;
-  const bytes = await invoke<ArrayBuffer>('artwork_read_video_bytes', { path: trimmed });
-  return URL.createObjectURL(new Blob([bytes], { type: 'video/mp4' }));
+  const bytes = await invoke<ArrayBuffer | Uint8Array | number[]>('artwork_read_video_bytes', { path: trimmed });
+  return URL.createObjectURL(new Blob([normalizeArrayBuffer(bytes)], { type: 'video/mp4' }));
 }
 
 export async function animateStorybookSlide(

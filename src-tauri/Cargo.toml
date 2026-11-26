@@ -1,6 +1,6 @@
 [package]
 name = "kidbuddy"
-version = "0.1.0"
+version = "0.1.1"
 description = "KidBuddy - Local-first AI Companion Desktop App for Kids"
 authors = ["KidBuddy Team"]
 edition = "2021"
