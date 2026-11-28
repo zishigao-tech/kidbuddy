@@ -27,7 +27,7 @@ import {
   type ChainStep,
 } from '@/config/chainTraining';
 import { CHAIN_PROMPT_LABELS, CHAIN_PROMPT_ORDER, composeChainThreeLines, sessionChainStats, suggestChainScore, trendLine } from '@/config/chainRecord';
-import { addSessionTo, loadBookFrom, nextSessionNo, todayIso, type ExpressionBook, type ExpressionSession, type Score } from '@/config/kidExpression';
+import { addSessionTo, loadBookFrom, nextSessionNo, todayIso, type ExpressionBook, type ExpressionSession, type ExpressionSubject, type Score } from '@/config/kidExpression';
 import type { DttPromptLevel } from '@/config/dtt';
 import { RecordExportSheet } from './components/RecordExportSheet';
 import { useKid } from './KidContext';
@@ -47,11 +47,24 @@ const promptButtonStyle: Record<DttPromptLevel, string> = {
   physical: 'bg-rose-500 hover:bg-rose-600',
 };
 
+/**
+ * 谁在带这节课。列表页选过就按列表页的走；
+ * 直接开链接进来（没经过列表页）时按「老师带」算，和旧记录口径一致。
+ */
+function readBy(): ExpressionSubject {
+  try {
+    return localStorage.getItem(`${LIFE_MODULE.storagePrefix}.by`) === '家长' ? '家长' : '教师';
+  } catch {
+    return '教师';
+  }
+}
+
 export default function KidLifePlay() {
   const { targetId } = useParams();
   const navigate = useNavigate();
   const { memory } = useKid();
   const target = useMemo(() => getChainTarget(targetId), [targetId]);
+  const by = readBy();
 
   const [book, setBook] = useState<ExpressionBook>(() => loadBookFrom(LIFE_MODULE.bookKey));
   const [student] = useState(() => {
@@ -146,7 +159,7 @@ export default function KidLifePlay() {
       sessionNo: nextSessionNo(book, student),
       topic: topicOf(target),
       targetId: target.id,
-      by: '教师',
+      by,
       rounds: [],
       score,
       threeLines,
@@ -175,7 +188,7 @@ export default function KidLifePlay() {
         <div className="mx-auto max-w-2xl space-y-4">
           <div className="rounded-[28px] border-2 border-slate-100 bg-white p-5 shadow-sm">
             <div className="text-xs font-bold text-slate-400">
-              {student} · {todayIso()} · 第 {nextSessionNo(book, student)} 课时
+              {student} · {todayIso()} · 第 {nextSessionNo(book, student)} 课时 · {by}带练
             </div>
             <h1 className="mt-1 text-xl font-extrabold text-slate-800">
               {target.id} {target.name}

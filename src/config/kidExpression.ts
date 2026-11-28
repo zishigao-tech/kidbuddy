@@ -432,8 +432,10 @@ function familyGuideSection(target: ExpressionTarget): string {
 
 export function buildSessionMarkdown(session: ExpressionSession): string {
   const target = getExpressionTarget(session.targetId);
-  // 链式课的编号（A5 / P3）不是名字，别拼成「A5 A5」
-  const name = target?.name ?? chainTargetName(session.targetId) ?? session.targetId;
+  // 链式课的编号（A5/P3）、认知目标的编号（C1）都不是名字。
+  // 查不到名字时留空，别拿编号当名字，否则会写「C1 C1」。
+  const name = target?.name ?? chainTargetName(session.targetId) ?? '';
+  const label = name ? `${session.targetId} ${name}` : session.targetId;
   const scoreText = session.score === null ? '本课未打分' : `${session.targetId}=${session.score}`;
   const scoreCell = session.score === null ? '—' : String(session.score);
   const quotes = session.rounds
@@ -457,7 +459,7 @@ export function buildSessionMarkdown(session: ExpressionSession): string {
     `### ${session.date} · 第${session.sessionNo}课时 · ${session.topic}${session.by === '家长' ? '（家长带练）' : ''}`,
   );
   lines.push('');
-  lines.push(`**目标**：${session.targetId} ${name}　**授课**：${session.by}　**得分**：${scoreText}`);
+  lines.push(`**目标**：${label}　**授课**：${session.by}　**得分**：${scoreText}`);
   lines.push('');
   if (target) {
     lines.push(`**本次教具**：${materialLine(target.materials, session.materials ?? {})}`);
@@ -494,7 +496,7 @@ export function buildSessionMarkdown(session: ExpressionSession): string {
     lines.push('| 编号 | 目标 | 本次观察到的表现 | 得分 |');
     lines.push('| --- | --- | --- | --- |');
     lines.push(
-      `| ${session.targetId} | ${name}：${target?.standard2 ?? ''} | ${achievementEvidence(session.rounds)} | ${scoreCell} |`,
+      `| ${session.targetId} | ${name ? `${name}：` : ''}${target?.standard2 ?? ''} | ${achievementEvidence(session.rounds)} | ${scoreCell} |`,
     );
     lines.push('');
     lines.push(`*得分口径：${SCORE_RUBRIC}*`);
@@ -516,5 +518,153 @@ export function buildSessionMarkdown(session: ExpressionSession): string {
   lines.push('');
   lines.push(`- ${session.nextStep || '（待补充）'}`);
   lines.push('');
+  return lines.join('\n');
+}
+
+// ---------------------------------------------------------------------------
+// 合并导出：一个孩子一个模块的全部课时拼成一份读本
+//
+// 单个课时的 md 是给 rebuild_index.py 归档用的，一份文件一个 meta 块。
+// 合并版**不给归档用**——它没有 meta 块，是给督导、家长和期末复盘顺着读的，
+// 所以开头放索引、中间按目标看走势、后面才是分节正文。
+// ---------------------------------------------------------------------------
+
+/** 从单节 md 里剥掉 meta 注释块，只留正文 */
+function stripSessionMeta(md: string): string {
+  if (!md.startsWith('<!--meta')) return md;
+  const end = md.indexOf('-->');
+  return end === -1 ? md : md.slice(end + 3).replace(/^\n+/, '');
+}
+
+export interface BookMarkdownOptions {
+  /** 模块名，如「认知理解」 */
+  moduleTitle: string;
+  student: string;
+  /** 目标编号 → 名字。不传就按语言表达表查，查不到只写编号 */
+  nameOf?: (targetId: string) => string;
+}
+
+/** 时间正序：先按日期，同一天再按课时号 */
+function bySessionOrder(a: ExpressionSession, b: ExpressionSession): number {
+  return a.date.localeCompare(b.date) || a.sessionNo - b.sessionNo;
+}
+
+function targetNameOf(targetId: string, opts: BookMarkdownOptions): string {
+  return opts.nameOf?.(targetId) || getExpressionTarget(targetId)?.name || chainTargetName(targetId) || '';
+}
+
+function scoreTextOf(session: ExpressionSession): string {
+  return session.score === null ? '未打分' : `${session.score} 分`;
+}
+
+export interface TargetTrend {
+  /** 练了几次 */
+  count: number;
+  /** 时间正序的首末两次 */
+  first: ExpressionSession;
+  last: ExpressionSession;
+  /** 首次 → 最近 的分数差；任一端没打分就是 null（不能拿 0 当「退步」） */
+  delta: number | null;
+  /** 一句话走势，页面和导出共用同一句，别各写一份 */
+  label: string;
+}
+
+/**
+ * 一个目标练得怎么样：只看首末两次，不看平均。
+ * 平均会把「从 0 分爬到 2 分」抹成 1 分，看起来像没进步。
+ */
+export function targetTrend(sessions: ExpressionSession[]): TargetTrend | null {
+  if (sessions.length === 0) return null;
+  const sorted = [...sessions].sort(bySessionOrder);
+  const first = sorted[0];
+  const last = sorted[sorted.length - 1];
+  const delta = first.score === null || last.score === null ? null : last.score - first.score;
+  const label =
+    sorted.length === 1
+      ? `只练了 1 次：${scoreTextOf(last)}`
+      : first.score === last.score
+        ? `${scoreTextOf(last)}，${sorted.length} 次没变`
+        : `${scoreTextOf(first)} → ${scoreTextOf(last)}`;
+  return { count: sorted.length, first, last, delta, label };
+}
+
+/** 合并版文件名：孩子_模块_全部课时_最后一天.md */
+export function bookFileName(sessions: ExpressionSession[], opts: BookMarkdownOptions): string {
+  const safe = (t: string) => t.replace(/[\\/:*?"<>|\s]/g, '').slice(0, 24) || '课时记录';
+  const sorted = [...sessions].sort(bySessionOrder);
+  const last = sorted[sorted.length - 1];
+  return `${safe(opts.student)}_${safe(opts.moduleTitle)}_全部课时_${last?.date ?? todayIso()}.md`;
+}
+
+export function buildBookMarkdown(sessions: ExpressionSession[], opts: BookMarkdownOptions): string {
+  const sorted = [...sessions].sort(bySessionOrder);
+  const teacherCount = sorted.filter((s) => s.by !== '家长').length;
+  const parentCount = sorted.length - teacherCount;
+  const first = sorted[0];
+  const last = sorted[sorted.length - 1];
+
+  const lines: string[] = [];
+  lines.push(`# ${opts.student} · ${opts.moduleTitle} 课时记录汇总`);
+  lines.push('');
+  lines.push(
+    `**课时**：${sorted.length} 节${first ? `（${first.date} — ${last.date}）` : ''}　**带练**：教师 ${teacherCount} 节 / 家长 ${parentCount} 节`,
+  );
+  lines.push('');
+  lines.push(
+    '> 这是合并版，给督导、家长和期末复盘读。要逐节归档请用每条的「导出 .md」——那一份带 meta 块，能被 rebuild_index.py 识别。',
+  );
+  lines.push('');
+
+  // 索引：一节课一行，先看全貌。不列「主题」——topic 就是目标名，列两遍反而显得没信息
+  lines.push('## 课时索引');
+  lines.push('');
+  lines.push('| 课时 | 日期 | 目标 | 谁带 | 分数 |');
+  lines.push('| --- | --- | --- | --- | --- |');
+  for (const s of sorted) {
+    const name = targetNameOf(s.targetId, opts);
+    const label = name ? `${s.targetId} ${name}` : s.targetId;
+    lines.push(`| 第${s.sessionNo}课时 | ${s.date} | ${label} | ${s.by} | ${scoreTextOf(s)} |`);
+  }
+  lines.push('');
+
+  // 按目标看：这个目标练了几次、分怎么走、最近卡在哪
+  const byTarget = new Map<string, ExpressionSession[]>();
+  for (const s of sorted) {
+    const list = byTarget.get(s.targetId);
+    if (list) list.push(s);
+    else byTarget.set(s.targetId, [s]);
+  }
+  const targetGroups = [...byTarget.entries()].sort((a, b) => {
+    const la = a[1][a[1].length - 1];
+    const lb = b[1][b[1].length - 1];
+    return bySessionOrder(lb, la);
+  });
+  lines.push('## 按目标看');
+  lines.push('');
+  for (const [targetId, list] of targetGroups) {
+    const name = targetNameOf(targetId, opts);
+    lines.push(`### ${name ? `${targetId} ${name}` : targetId}（练了 ${list.length} 次）`);
+    lines.push('');
+    const trend = targetTrend(list);
+    if (trend) {
+      const datePart = trend.count === 1 ? trend.last.date : `${trend.first.date} → ${trend.last.date}`;
+      lines.push(`- 分数走势：${trend.label}（${datePart}）`);
+    }
+    const subjects = [...new Set(list.map((s) => s.by))].join(' + ');
+    lines.push(`- 带练主体：${subjects}`);
+    const tail = list[list.length - 1];
+    if (tail.threeLines.stuck.trim()) lines.push(`- 最近一次卡在：${tail.threeLines.stuck.trim()}`);
+    lines.push('');
+  }
+
+  // 分节正文：剥掉 meta，只留人能读的部分
+  lines.push('## 分节记录');
+  lines.push('');
+  for (const s of sorted) {
+    lines.push('---');
+    lines.push('');
+    lines.push(stripSessionMeta(buildSessionMarkdown(s)).trimEnd());
+    lines.push('');
+  }
   return lines.join('\n');
 }

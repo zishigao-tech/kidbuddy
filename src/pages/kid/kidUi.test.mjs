@@ -290,6 +290,28 @@ assert.match(lifeList, /CHAIN_MODE_META\[target\.defaultMode\]/, '卡片要显�
 assert.match(lifeList, /target\.steps\.length/, '卡片要显示步数');
 assert.match(lifeList, /needsLine\(target\)/, '卡片要显示要准备什么');
 
+// 带练人：三个模块口径一致，各挂在自己的 storagePrefix 下
+assert.match(lifeList, /data-testid={`life-subject-\$\{v\}`}/, '生活小能手顶部也要能选这节课谁带');
+assert.match(lifeList, /changeSubject\(v\)/, '带练人要能切换并落库');
+assert.match(lifePlay, /const by = readBy\(\)/, '链式练习页要读带练人，不能自己另存一份');
+assert.doesNotMatch(lifePlay, /by: '教师'/, '记录的 by 不能写死成教师，家长带练会被记成教师');
+assert.match(lifePlay, /\{by\}带练/, '记录页要显示这节课是谁带的');
+
+// 生活小能手底部也要有课时记录，和认知理解同一套
+assert.match(lifeList, /data-testid=\{`life-records-group-\$\{g\.targetId\}`\}/, '按链分组列课时');
+assert.match(lifeList, /练了 \{g\.sessions\.length\} 次/, '组头要报练了几次');
+assert.match(lifeList, /data-testid="life-records-export-all"/, '要有「导出全部课时」');
+assert.match(lifeList, /buildBookMarkdown\(mine/, '合并导出用全部课时');
+assert.match(lifeList, /最后一遍独立 \{g\.lastSteps\} 步/, '链式课要报最后一遍独立几步，光有分数看不出卡在哪');
+assert.match(lifeList, /sessionChainStats\(target, last\.runs\)/, '独立步数要按最后一遍算，别自己数');
+assert.match(lifeList, /life-records-export-sheet/, '合并导出走同一套弹窗');
+
+// 分数配色只有一份实现，否则三个模块同分不同色
+const scoreChipSrc = await read('./components/ScoreChip.tsx');
+assert.match(scoreChipSrc, /export function scoreChipClass/, '配色要在组件里统一定义');
+assert.match(expressionPage, /from '\.\/components\/ScoreChip'/, '认知/说说不该自己再写一份 ScoreChip');
+assert.match(lifeList, /from '\.\/components\/ScoreChip'/, '生活小能手也用同一份');
+
 // 首页卡片直接告诉老师今晚练哪条，不用点进去才知道
 assert.match(home, /data-testid={`\$\{testId\}-next`}/, '三张卡都要有「下次练」那一行');
 assert.match(home, /chainNextUp\(name\)/, '生活技能的下次目标要按链的口径算');
@@ -369,5 +391,30 @@ assert.match(lifeList, /上次独立 \{last\.independent\}\/\{last\.total\} 步/
 // 保存后要能拿到那份 markdown：只落库不给文件，老师还得绕去家长中心
 assert.match(lifePlay, /RecordExportSheet/, '记录页要能导出');
 assert.match(lifePlay, /setExporting\(session\)/, '保存之后先弹导出，关掉才回列表');
+
+// ---- 底部课时记录：按目标分组 + 一次导出全部 ----
+assert.match(expressionPage, /records-group-\$\{g\.targetId\}/, '课时记录要按目标分组，不是一条条平铺');
+assert.match(expressionPage, /练了 \{g\.sessions\.length\} 次/, '组头要报这个目标练了几次');
+assert.match(expressionPage, /newerFirst/, '组和组内都按时间倒序，刚练完的排最前');
+assert.match(expressionPage, /data-testid="records-export-all"/, '要有「导出全部课时」按钮');
+assert.match(expressionPage, /disabled=\{mine\.length === 0\}/, '没记录时导出全部要禁用，不能导出一份空文件');
+assert.match(expressionPage, /buildBookMarkdown\(mine/, '合并导出要用全部课时');
+assert.match(expressionPage, /bookFileName\(mine/, '合并版文件名要有单独口径');
+assert.match(expressionPage, /records-export-sheet/, '合并导出走同一套弹窗');
+
+// 走势要直接看得见，不能只有导出 md 里才有
+assert.match(expressionPage, /data-testid=\{`records-trend-\$\{g\.targetId\}`\}/, '每个目标要有走势');
+assert.match(expressionPage, /targetTrend\(sessions\)/, '走势口径要和导出共用 targetTrend');
+assert.match(expressionPage, /asc: \[\.\.\.sessions\]\.reverse\(\)/, '方块要从旧到新排，否则读不出往哪走');
+assert.match(expressionPage, /scoreDotClass\(s\.score\)/, '每个方块按分数上色');
+assert.match(expressionPage, /最近卡在：\{g\.last\.threeLines\.stuck\}/, '卡点直接放在走势下面，不用展开记录');
+
+// 导出弹窗只留一份实现：单节和合并版共用，否则按钮位置和提示语会走偏
+const exportSheet = await read('./components/RecordExportSheet.tsx');
+const markdownSheet = await read('./components/MarkdownExportSheet.tsx');
+assert.match(exportSheet, /MarkdownExportSheet/, '单节导出要复用统一的 markdown 弹窗');
+assert.doesNotMatch(exportSheet, /navigator\.clipboard/, '导出弹窗里不该再有一份复制逻辑');
+assert.match(markdownSheet, /download/, '统一弹窗里保留下载');
+assert.match(markdownSheet, /\$\{testId\}-download/, '下载按钮要带锚点，端到端能点');
 
 console.log('kidUi.test.mjs: ok');
