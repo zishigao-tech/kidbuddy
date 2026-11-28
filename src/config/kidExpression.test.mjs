@@ -401,4 +401,101 @@ const book = mod.normalizeBook({
 assert.equal(book.sessions[0].runs.length, 1, '合法的 runs 要留下');
 assert.equal(book.sessions[1].runs, undefined, '全是脏数据的 runs 要整组丢掉，不留空数组');
 
+// ---- 合并导出：一个孩子一个模块的全部课时拼成一份读本 ----
+// 单节 md 是给 rebuild_index.py 归档的；合并版不给归档用，所以必须把 meta 块剥掉，
+// 否则一份文件里塞好几个 meta 块，索引脚本会认错。
+{
+  const merged = mod.buildBookMarkdown(
+    [
+      session({ id: 'm1', date: '2026-11-20', sessionNo: 1, targetId: 'K1', score: 1, by: '教师', topic: '说清一件事' }),
+      session({
+        id: 'm2',
+        date: '2026-11-28',
+        sessionNo: 2,
+        targetId: 'K1',
+        score: 2,
+        by: '家长',
+        topic: '说清一件事',
+        threeLines: { did: '讲了一遍公园', achieved: '能说清顺序', stuck: '中间漏了人物' },
+      }),
+      session({ id: 'm3', date: '2026-11-22', sessionNo: 3, targetId: 'G2', score: 2, by: '教师', topic: '两步指令' }),
+    ],
+    { moduleTitle: '认知理解', student: '小远' },
+  );
+
+  assert.match(merged, /^# 小远 · 认知理解 课时记录汇总/, '标题要带孩子名和模块名');
+  assert.match(merged, /课时\*\*：3 节（2026-11-20 — 2026-11-28）/, '要报总节数和时间跨度');
+  assert.match(merged, /教师 2 节 \/ 家长 1 节/, '带练主体要分账');
+  assert.match(merged, /## 课时索引/, '先给索引，一节课一行');
+  assert.match(merged, /\| 第1课时 \| 2026-11-20/, '索引要按时间正序，读起来像课程日志');
+  assert.ok(merged.indexOf('第1课时') < merged.indexOf('第3课时'), '索引不能倒序');
+  assert.match(merged, /## 按目标看/, '中间给每个目标的分数走势');
+  assert.match(merged, /1 分 → 2 分/, '走势要写清首末两次');
+  assert.match(merged, /最近一次卡在：中间漏了人物/, '卡点取这个目标最后一条记录');
+  assert.match(merged, /## 分节记录/);
+  assert.equal(merged.split('<!--meta').length - 1, 0, '合并版不能带 meta 块，否则归档脚本会认错');
+  assert.match(merged, /### 2026-11-20 · 第1课时/, '分节正文照旧保留');
+  assert.ok(merged.indexOf('### 2026-11-22') < merged.indexOf('### 2026-11-28'), '分节也要正序');
+}
+
+// 文件名要能直接存成文件，且带上最后一天
+{
+  const name = mod.bookFileName(
+    [session({ date: '2026-11-20', sessionNo: 1 }), session({ date: '2026-11-28', sessionNo: 2 })],
+    { moduleTitle: '认知理解', student: '小 远' },
+  );
+  assert.equal(name, '小远_认知理解_全部课时_2026-11-28.md', '空格要去掉，日期取最后一节');
+}
+
+// 查不到名字时别拿编号当名字：认知目标的 C1 不在语言表达表里，会写成「C1 C1」
+{
+  const cogMd = mod.buildSessionMarkdown(session({ targetId: 'C1', topic: '相同物品配对' }));
+  assert.match(cogMd, /\*\*目标\*\*：C1　/, '查不到名字就只写编号');
+  assert.doesNotMatch(cogMd, /C1 C1/, '不能把编号拼两遍');
+  assert.doesNotMatch(cogMd, /C1：/, '表里那一格也别留个空冒号');
+}
+
+// 只练过一次时没有「走势」可言
+{
+  const one = mod.buildBookMarkdown([session({ targetId: 'C2', score: 2, date: '2026-11-24' })], {
+    moduleTitle: '认知理解',
+    student: '小远',
+  });
+  assert.match(one, /只练了 1 次：2 分（2026-11-24）/, '单次别写成「11-24 → 11-24」');
+  assert.doesNotMatch(one, /2026-11-24 → 2026-11-24/);
+}
+
+// ---- 走势：页面和导出用同一句，别各写一份 ----
+{
+  const up = mod.targetTrend([
+    session({ id: 't1', date: '2026-11-20', score: 1 }),
+    session({ id: 't2', date: '2026-11-28', score: 2 }),
+  ]);
+  assert.equal(up.count, 2);
+  assert.equal(up.label, '1 分 → 2 分');
+  assert.equal(up.delta, 1, '首末两次的差');
+  assert.equal(up.first.date, '2026-11-20', 'first 是旧的，和传进来的顺序无关');
+  assert.equal(up.last.date, '2026-11-28');
+
+  const down = mod.targetTrend([session({ date: '2026-11-20', score: 2 }), session({ date: '2026-11-28', score: 0 })]);
+  assert.equal(down.delta, -2, '退步要给负数');
+  assert.equal(down.label, '2 分 → 0 分');
+
+  const flat = mod.targetTrend([session({ date: '2026-11-20', score: 2 }), session({ date: '2026-11-28', score: 2 })]);
+  assert.equal(flat.label, '2 分，2 次没变', '分数没动就说没动，不写「2 分 → 2 分」');
+
+  const once = mod.targetTrend([session({ score: 2 })]);
+  assert.equal(once.label, '只练了 1 次：2 分');
+
+  // 没打分不能当成 0 分算退步
+  const unscored = mod.targetTrend([session({ date: '2026-11-20', score: null }), session({ date: '2026-11-28', score: 2 })]);
+  assert.equal(unscored.delta, null, '有一端没打分就没有差值');
+
+  assert.equal(mod.targetTrend([]), null, '没记录就没有走势');
+
+  // 导出里的那句必须来自 targetTrend，不能自己再拼一遍
+  const src = await readFile(new URL('./kidExpression.ts', import.meta.url), 'utf8');
+  assert.match(src, /\$\{trend\.label\}/, 'md 里的走势要用 trend.label');
+}
+
 console.log('PASS kidExpression');

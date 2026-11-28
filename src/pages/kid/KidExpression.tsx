@@ -29,18 +29,22 @@ import {
 } from '@/config/targetTuning';
 import { sceneLoad } from '@/config/taskScenes';
 import {
-  SCORE_LABEL,
   STABILITY_LABEL,
+  bookFileName,
+  buildBookMarkdown,
   historyLine,
   nextSessionNo,
   sessionsOf,
   targetStat,
+  targetTrend,
   type ExpressionBook,
   type ExpressionSession,
   type ExpressionSubject,
   type StabilityStatus,
 } from '@/config/kidExpression';
 import { EXPRESSION_MODULE, type LessonModule } from '@/config/lessonModules';
+import { MarkdownExportSheet } from './components/MarkdownExportSheet';
+import { ScoreChip, scoreDotClass } from './components/ScoreChip';
 import { RecordExportSheet } from './components/RecordExportSheet';
 import { useKid } from './KidContext';
 
@@ -90,23 +94,6 @@ const statusStyle: Record<StabilityStatus, { badge: string; dot: string }> = {
   pending: { badge: 'bg-amber-50 text-amber-700 ring-1 ring-amber-200', dot: 'bg-amber-500' },
   stable: { badge: 'bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200', dot: 'bg-emerald-500' },
 };
-
-function ScoreChip({ score }: { score: number | null }) {
-  if (score === null) {
-    return <span className="rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-bold text-slate-500">未打分</span>;
-  }
-  const color =
-    score === 2
-      ? 'bg-emerald-100 text-emerald-700'
-      : score === 1
-        ? 'bg-amber-100 text-amber-700'
-        : 'bg-rose-100 text-rose-700';
-  return (
-    <span className={`rounded-full px-2.5 py-0.5 text-xs font-bold ${color}`}>
-      {score} 分 · {SCORE_LABEL[score as 0 | 1 | 2]}
-    </span>
-  );
-}
 
 const tierStyle: Record<ExpressionTier, string> = {
   入门: 'bg-emerald-50 text-emerald-700',
@@ -410,6 +397,7 @@ export function LessonTargetsPage({ module }: { module: LessonModule }) {
   const [student, setStudent] = useState(() => readStudent(scope, memory.nickname || '小朋友'));
   const [subject, setSubject] = useState<ExpressionSubject>(() => readSubject(scope));
   const [exporting, setExporting] = useState<ExpressionSession | null>(null);
+  const [exportingAll, setExportingAll] = useState(false);
   const [stage, setStage] = useState<ExpressionBand | 'all'>(() => readStage(scope));
   const [scene, setScene] = useState<SettingId | 'all'>(() => readScene(scope));
   const [showExtra, setShowExtra] = useState(false);
@@ -442,6 +430,36 @@ export function LessonTargetsPage({ module }: { module: LessonModule }) {
   const stableCount = stableIds.length;
   const pendingCount = module.targets.filter((t) => targetStat(book, student, t.id).status === 'pending').length;
   const nextTarget = module.suggestNext(stableIds);
+  /**
+   * 底部的课时记录按目标分组：上面那块是「接下来练什么」，这里是「这个目标练得怎么样」。
+   * 组按最近一次练的时间倒序（刚练完的排最前），组内课时也倒序。
+   * 老记录可能没有 createdAt，排序只认 date + sessionNo，不依赖它。
+   */
+  const newerFirst = (a: ExpressionSession, b: ExpressionSession) =>
+    b.date.localeCompare(a.date) || b.sessionNo - a.sessionNo;
+  const recordGroups = (() => {
+    const byTarget = new Map<string, ExpressionSession[]>();
+    for (const s of mine) {
+      const list = byTarget.get(s.targetId);
+      if (list) list.push(s);
+      else byTarget.set(s.targetId, [s]);
+    }
+    return [...byTarget.entries()]
+      .map(([targetId, list]) => {
+        const sessions = [...list].sort(newerFirst);
+        return {
+          targetId,
+          name: module.getTarget(targetId)?.name ?? targetId,
+          sessions,
+          /** 走势要从旧到新排，方块才读得出「往哪个方向走」 */
+          asc: [...sessions].reverse(),
+          trend: targetTrend(sessions),
+          last: sessions[0],
+          status: targetStat(book, student, targetId).status,
+        };
+      })
+      .sort((a, b) => newerFirst(a.last, b.last));
+  })();
   /**
    * 学段顺序（B → G → K）是年龄决定的，不重排；段内顺序跟着老师调过的台阶走。
    * 用 tunedDifficulty 而不是 target.difficulty，否则调完「全部场景」看不到落位变化。
@@ -844,42 +862,109 @@ export function LessonTargetsPage({ module }: { module: LessonModule }) {
         <div className="rounded-[32px] border border-slate-100 bg-white/95 p-5 shadow-sm">
           <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
             <h2 className="text-xl font-extrabold text-slate-800">📋 课时记录（{mine.length}）</h2>
-            <span className="text-xs text-slate-400">点「导出」拿到可并入上课记录的 .md</span>
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-xs text-slate-400">按目标分组，组内新的在前</span>
+              <button
+                type="button"
+                data-testid="records-export-all"
+                disabled={mine.length === 0}
+                onClick={() => setExportingAll(true)}
+                className="flex h-12 items-center rounded-xl bg-slate-800 px-4 text-xs font-bold text-white transition hover:bg-slate-700 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-400 disabled:hover:bg-slate-200"
+              >
+                ⬇️ 导出全部课时
+              </button>
+            </div>
           </div>
           {mine.length === 0 ? (
             <p className="py-6 text-center text-base text-slate-400">还没有记录。挑一个目标，和孩子练完一轮就会自动生成。</p>
           ) : (
-            <div className="space-y-2.5">
-              {mine
-                .slice()
-                .reverse()
-                .map((s) => (
-                  <div
-                    key={s.id}
-                    className="flex flex-wrap items-center gap-3 rounded-2xl border-2 border-slate-100 bg-slate-50/40 p-3.5"
-                  >
-                    <span className="rounded-lg bg-slate-100 px-2.5 py-1 text-xs font-extrabold text-slate-700">
-                      第{s.sessionNo}课时
+            <div className="space-y-3">
+              {recordGroups.map((g) => (
+                <div
+                  key={g.targetId}
+                  data-testid={`records-group-${g.targetId}`}
+                  className="rounded-2xl border-2 border-slate-100 bg-slate-50/40 p-3.5"
+                >
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className={`rounded-full ${module.accent.soft} px-2.5 py-0.5 text-xs font-extrabold ${module.accent.textStrong}`}>
+                      {g.targetId}
                     </span>
-                    <span className="text-sm font-bold text-slate-700">
-                      {s.date} · {s.topic}
+                    <span className="text-sm font-extrabold text-slate-700">{g.name}</span>
+                    <span className="text-xs font-bold text-slate-400">练了 {g.sessions.length} 次</span>
+                    {g.status === 'stable' && (
+                      <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[11px] font-bold text-emerald-700">
+                        {STABILITY_LABEL.stable}
+                      </span>
+                    )}
+                    <span className="ml-auto flex items-center gap-1.5 text-xs font-bold text-slate-400">
+                      最近
+                      <ScoreChip score={g.last.score} />
                     </span>
-                    <span className={`rounded-full ${module.accent.soft} px-2.5 py-0.5 text-xs font-bold ${module.accent.text}`}>
-                      {s.targetId}
-                    </span>
-                    <span className="rounded-full bg-white px-2.5 py-0.5 text-xs font-bold text-slate-500 ring-1 ring-slate-200">
-                      {s.by}
-                    </span>
-                    <ScoreChip score={s.score} />
-                    <button
-                      type="button"
-                      onClick={() => setExporting(s)}
-                      className="ml-auto h-12 rounded-xl bg-slate-800 px-4 text-xs font-bold text-white transition hover:bg-slate-700"
-                    >
-                      导出 .md
-                    </button>
                   </div>
-                ))}
+                  {/* 走势：每节课一个小方块，从旧到新；后面那句和导出 md 里是同一个口径 */}
+                  {g.trend && (
+                    <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 border-t border-slate-100 pt-2">
+                      <span className="text-[11px] font-bold text-slate-400">走势</span>
+                      <span
+                        data-testid={`records-trend-${g.targetId}`}
+                        className="flex flex-wrap items-center gap-1"
+                        title={`按时间从旧到新：${g.trend.label}`}
+                      >
+                        {g.asc.map((s) => (
+                          <span
+                            key={s.id}
+                            title={`第${s.sessionNo}课时 · ${s.date} · ${s.score === null ? '未打分' : `${s.score} 分`}`}
+                            className={`flex h-6 min-w-6 items-center justify-center rounded-md px-1 text-[11px] font-extrabold ${scoreDotClass(s.score)}`}
+                          >
+                            {s.score === null ? '—' : s.score}
+                          </span>
+                        ))}
+                      </span>
+                      <span className="text-[11px] font-bold text-slate-500">{g.trend.label}</span>
+                      {g.trend.delta !== null && g.trend.delta !== 0 && (
+                        <span
+                          className={`rounded-full px-1.5 py-0.5 text-[11px] font-extrabold ${
+                            g.trend.delta > 0 ? 'bg-emerald-50 text-emerald-700' : 'bg-rose-50 text-rose-700'
+                          }`}
+                        >
+                          {g.trend.delta > 0 ? `↑ +${g.trend.delta}` : `↓ ${g.trend.delta}`}
+                        </span>
+                      )}
+                      {g.last.threeLines.stuck.trim() && (
+                        <span className="w-full truncate text-[11px] text-slate-400">
+                          最近卡在：{g.last.threeLines.stuck}
+                        </span>
+                      )}
+                    </div>
+                  )}
+                  <div className="mt-2 space-y-2">
+                    {g.sessions.map((s) => (
+                      <div
+                        key={s.id}
+                        className="flex flex-wrap items-center gap-3 rounded-xl border border-slate-100 bg-white p-3"
+                      >
+                        <span className="rounded-lg bg-slate-100 px-2.5 py-1 text-xs font-extrabold text-slate-700">
+                          第{s.sessionNo}课时
+                        </span>
+                        <span className="text-sm font-bold text-slate-700">
+                          {s.date} · {s.topic}
+                        </span>
+                        <span className="rounded-full bg-white px-2.5 py-0.5 text-xs font-bold text-slate-500 ring-1 ring-slate-200">
+                          {s.by}
+                        </span>
+                        <ScoreChip score={s.score} />
+                        <button
+                          type="button"
+                          onClick={() => setExporting(s)}
+                          className="ml-auto h-12 rounded-xl bg-slate-800 px-4 text-xs font-bold text-white transition hover:bg-slate-700"
+                        >
+                          导出 .md
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ))}
             </div>
           )}
         </div>
@@ -890,6 +975,22 @@ export function LessonTargetsPage({ module }: { module: LessonModule }) {
           session={exporting}
           accentClass={module.accent.solid}
           onClose={() => setExporting(null)}
+        />
+      )}
+
+      {exportingAll && (
+        <MarkdownExportSheet
+          title="全部课时已合并"
+          note="合并版没有 meta 块，是给督导、家长和期末复盘顺着读的：先是课时索引，再是按目标看走势，最后是分节正文。要逐节归档，仍请点每条记录的「导出 .md」。"
+          fileName={bookFileName(mine, { moduleTitle: module.title, student })}
+          md={buildBookMarkdown(mine, {
+            moduleTitle: module.title,
+            student,
+            nameOf: (id) => module.getTarget(id)?.name ?? id,
+          })}
+          accentClass={module.accent.solid}
+          onClose={() => setExportingAll(false)}
+          testId="records-export-sheet"
         />
       )}
     </div>

@@ -12,26 +12,43 @@ import { useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { lockLessonArea } from '@/config/lessonGate';
 import { LIFE_MODULE } from '@/config/chainModule';
-import { CHAIN_TARGETS, chainGroups, needsLine, suggestNextChain } from '@/config/chainTargets';
+import { CHAIN_TARGETS, chainGroups, getChainTarget, needsLine, suggestNextChain } from '@/config/chainTargets';
 import { chainStableIds, lastBandOf } from '@/config/nextUp';
 import { CHAIN_BAND_META, CHAIN_GROUP_META, CHAIN_MODE_META, type ChainTarget } from '@/config/chainTraining';
 import { sessionChainStats } from '@/config/chainRecord';
 import {
+  bookFileName,
+  buildBookMarkdown,
   loadBookFrom,
   nextSessionNo,
   sessionsOf,
+  targetTrend,
   type ExpressionBook,
+  type ExpressionSession,
+  type ExpressionSubject,
 } from '@/config/kidExpression';
+import { MarkdownExportSheet } from './components/MarkdownExportSheet';
+import { RecordExportSheet } from './components/RecordExportSheet';
+import { ScoreChip, scoreDotClass } from './components/ScoreChip';
 import { useKid } from './KidContext';
 
 const scope = LIFE_MODULE.storagePrefix;
 const studentKey = `${scope}.student`;
+const subjectKey = `${scope}.by`;
 
 function readStudent(fallback: string): string {
   try {
     return localStorage.getItem(studentKey) || fallback;
   } catch {
     return fallback;
+  }
+}
+
+function readSubject(): ExpressionSubject {
+  try {
+    return localStorage.getItem(subjectKey) === '家长' ? '家长' : '教师';
+  } catch {
+    return '教师';
   }
 }
 
@@ -120,6 +137,9 @@ export default function KidLife() {
   const { memory } = useKid();
   const [book] = useState<ExpressionBook>(() => loadBookFrom(LIFE_MODULE.bookKey));
   const [student, setStudent] = useState(() => readStudent(memory.nickname || '小朋友'));
+  const [subject, setSubject] = useState<ExpressionSubject>(() => readSubject());
+  const [exporting, setExporting] = useState<ExpressionSession | null>(null);
+  const [exportingAll, setExportingAll] = useState(false);
 
   const mine = sessionsOf(book, student);
 
@@ -152,10 +172,52 @@ export default function KidLife() {
   const groups = useMemo(() => chainGroups(), []);
   const masteryPct = CHAIN_TARGETS.length > 0 ? Math.round((stableIds.length / CHAIN_TARGETS.length) * 100) : 0;
 
+  /**
+   * 底部课时记录：按链分组，和认知理解底部同一套逻辑（分组 → 走势 → 每节一行）。
+   * 链式课的关键数字不是分数而是「最后一遍独立几步」，所以每行额外报 X/Y 步。
+   */
+  const recordGroups = useMemo(() => {
+    const byTarget = new Map<string, ExpressionSession[]>();
+    for (const s of mine) {
+      const list = byTarget.get(s.targetId);
+      if (list) list.push(s);
+      else byTarget.set(s.targetId, [s]);
+    }
+    const newer = (a: ExpressionSession, b: ExpressionSession) =>
+      b.date.localeCompare(a.date) || b.sessionNo - a.sessionNo;
+    return [...byTarget.entries()]
+      .map(([targetId, list]) => {
+        const sessions = [...list].sort(newer);
+        const target = getChainTarget(targetId);
+        const last = sessions[0];
+        const stats = target && last.runs?.length ? sessionChainStats(target, last.runs).last : null;
+        return {
+          targetId,
+          name: target?.name ?? targetId,
+          sessions,
+          asc: [...sessions].reverse(),
+          trend: targetTrend(sessions),
+          last,
+          lastSteps: stats ? `${stats.stats.independent}/${stats.stats.total}` : null,
+          stable: stableIds.includes(targetId),
+        };
+      })
+      .sort((a, b) => newer(a.last, b.last));
+  }, [mine, stableIds]);
+
   const changeStudent = (value: string) => {
     setStudent(value);
     try {
       localStorage.setItem(studentKey, value);
+    } catch {
+      /* 忽略 */
+    }
+  };
+
+  const changeSubject = (next: ExpressionSubject) => {
+    setSubject(next);
+    try {
+      localStorage.setItem(subjectKey, next);
     } catch {
       /* 忽略 */
     }
@@ -226,6 +288,25 @@ export default function KidLife() {
               className="h-12 w-36 rounded-xl border-2 border-slate-200 bg-white px-3 text-base font-bold text-slate-800 outline-none focus:border-sky-400"
             />
           </label>
+          {/* 带练人和孩子一样挂在这个模块前缀下，换模块不串号 */}
+          <div className="flex items-center gap-2 text-sm font-bold text-slate-600">
+            <span>这节课谁带</span>
+            <div className="flex overflow-hidden rounded-xl border-2 border-slate-200 bg-slate-50 p-0.5">
+              {(['教师', '家长'] as ExpressionSubject[]).map((v) => (
+                <button
+                  key={v}
+                  type="button"
+                  data-testid={`life-subject-${v}`}
+                  onClick={() => changeSubject(v)}
+                  className={`h-12 rounded-lg px-4 text-sm font-bold transition ${
+                    subject === v ? 'bg-sky-500 text-white shadow-sm' : 'text-slate-500'
+                  }`}
+                >
+                  {v === '教师' ? '老师带' : '家长带'}
+                </button>
+              ))}
+            </div>
+          </div>
           <span className="ml-auto rounded-full bg-sky-50 px-3.5 py-1.5 text-xs font-bold text-sky-700">
             下一节：第 {nextSessionNo(book, student)} 课时（跨天连续）
           </span>
@@ -284,7 +365,144 @@ export default function KidLife() {
             </section>
           );
         })}
+
+        {/* 课时账本：口径和认知理解底部一致，只是每行多报一次「最后一遍独立几步」 */}
+        <div className="rounded-[32px] border border-slate-100 bg-white/95 p-5 shadow-sm">
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+            <h2 className="text-xl font-extrabold text-slate-800">📋 课时记录（{mine.length}）</h2>
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-xs text-slate-400">按链分组，组内新的在前</span>
+              <button
+                type="button"
+                data-testid="life-records-export-all"
+                disabled={mine.length === 0}
+                onClick={() => setExportingAll(true)}
+                className="flex h-12 items-center rounded-xl bg-slate-800 px-4 text-xs font-bold text-white transition hover:bg-slate-700 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-400 disabled:hover:bg-slate-200"
+              >
+                ⬇️ 导出全部课时
+              </button>
+            </div>
+          </div>
+          {mine.length === 0 ? (
+            <p className="py-6 text-center text-base text-slate-400">
+              还没有记录。挑一条链，和孩子走完一遍就会自动生成。
+            </p>
+          ) : (
+            <div className="space-y-3">
+              {recordGroups.map((g) => (
+                <div
+                  key={g.targetId}
+                  data-testid={`life-records-group-${g.targetId}`}
+                  className="rounded-2xl border-2 border-slate-100 bg-slate-50/40 p-3.5"
+                >
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="rounded-full bg-sky-50 px-2.5 py-0.5 text-xs font-extrabold text-sky-700">
+                      {g.targetId}
+                    </span>
+                    <span className="text-sm font-extrabold text-slate-700">{g.name}</span>
+                    <span className="text-xs font-bold text-slate-400">练了 {g.sessions.length} 次</span>
+                    {g.stable && (
+                      <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[11px] font-bold text-emerald-700">
+                        最近一次满分
+                      </span>
+                    )}
+                    <span className="ml-auto flex items-center gap-2 text-xs font-bold text-slate-400">
+                      {g.lastSteps && (
+                        <span data-testid={`life-records-steps-${g.targetId}`} className="rounded-full bg-white px-2 py-0.5 ring-1 ring-slate-200">
+                          最后一遍独立 {g.lastSteps} 步
+                        </span>
+                      )}
+                      <ScoreChip score={g.last.score} />
+                    </span>
+                  </div>
+                  {g.trend && (
+                    <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 border-t border-slate-100 pt-2">
+                      <span className="text-[11px] font-bold text-slate-400">走势</span>
+                      <span
+                        data-testid={`life-records-trend-${g.targetId}`}
+                        className="flex flex-wrap items-center gap-1"
+                        title={`按时间从旧到新：${g.trend.label}`}
+                      >
+                        {g.asc.map((s) => (
+                          <span
+                            key={s.id}
+                            title={`第${s.sessionNo}课时 · ${s.date} · ${s.score === null ? '未打分' : `${s.score} 分`}`}
+                            className={`flex h-6 min-w-6 items-center justify-center rounded-md px-1 text-[11px] font-extrabold ${scoreDotClass(s.score)}`}
+                          >
+                            {s.score === null ? '—' : s.score}
+                          </span>
+                        ))}
+                      </span>
+                      <span className="text-[11px] font-bold text-slate-500">{g.trend.label}</span>
+                      {g.trend.delta !== null && g.trend.delta !== 0 && (
+                        <span
+                          className={`rounded-full px-1.5 py-0.5 text-[11px] font-extrabold ${
+                            g.trend.delta > 0 ? 'bg-emerald-50 text-emerald-700' : 'bg-rose-50 text-rose-700'
+                          }`}
+                        >
+                          {g.trend.delta > 0 ? `↑ +${g.trend.delta}` : `↓ ${g.trend.delta}`}
+                        </span>
+                      )}
+                      {g.last.threeLines.stuck.trim() && (
+                        <span className="w-full truncate text-[11px] text-slate-400">
+                          最近卡在：{g.last.threeLines.stuck}
+                        </span>
+                      )}
+                    </div>
+                  )}
+                  <div className="mt-2 space-y-2">
+                    {g.sessions.map((s) => (
+                      <div
+                        key={s.id}
+                        className="flex flex-wrap items-center gap-3 rounded-xl border border-slate-100 bg-white p-3"
+                      >
+                        <span className="rounded-lg bg-slate-100 px-2.5 py-1 text-xs font-extrabold text-slate-700">
+                          第{s.sessionNo}课时
+                        </span>
+                        <span className="text-sm font-bold text-slate-700">{s.date}</span>
+                        <span className="rounded-full bg-white px-2.5 py-0.5 text-xs font-bold text-slate-500 ring-1 ring-slate-200">
+                          {s.by}
+                        </span>
+                        <span className="text-xs font-bold text-slate-500">
+                          {s.runs?.length ? `${s.runs.length} 遍` : '—'}
+                        </span>
+                        <ScoreChip score={s.score} />
+                        <button
+                          type="button"
+                          onClick={() => setExporting(s)}
+                          className="ml-auto h-12 rounded-xl bg-slate-800 px-4 text-xs font-bold text-white transition hover:bg-slate-700"
+                        >
+                          导出 .md
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
       </div>
+
+      {exporting && (
+        <RecordExportSheet session={exporting} accentClass="bg-sky-500" onClose={() => setExporting(null)} />
+      )}
+
+      {exportingAll && (
+        <MarkdownExportSheet
+          title="全部课时已合并"
+          note="合并版没有 meta 块，是给督导、家长和期末复盘顺着读的：先是课时索引，再是按链看走势，最后是分节正文。要逐节归档，仍请点每条记录的「导出 .md」。"
+          fileName={bookFileName(mine, { moduleTitle: LIFE_MODULE.title, student })}
+          md={buildBookMarkdown(mine, {
+            moduleTitle: LIFE_MODULE.title,
+            student,
+            nameOf: (id) => getChainTarget(id)?.name ?? id,
+          })}
+          accentClass="bg-sky-500"
+          onClose={() => setExportingAll(false)}
+          testId="life-records-export-sheet"
+        />
+      )}
     </div>
   );
 }
